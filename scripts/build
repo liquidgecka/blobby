@@ -1,0 +1,136 @@
+#!/bin/bash
+#
+# build: build the stuff in place, since `go build ./...` compiles multiple
+# packages, and so discards the result.  You can `go install ./...` but you
+# might not want to contaminate your $PATH with devel binaries.
+#
+# So provide a simple wrapper to build, and very explicitly show where the
+# results are on disk.
+
+set -eu
+
+# This needs to support RP_BUILD_TAGS='' in env to explicitly suppress any
+# build tags.
+build_tags="aws"
+if [ "${RP_BUILD_TAGS+foo}" != "" ]; then
+    build_tags="${RP_BUILD_TAGS}"
+fi
+
+progname="$(basename "$0" .sh)"
+warn() { printf >&2 '%s: %s\n' "$progname" "$*"; }
+die() { warn "$@"; exit 1; }
+cd_or_die() { cd "$1" || die "chdir($1) failed"; }
+
+cd_or_die "$(dirname "$0")/.."
+start_dir="$(pwd -P)"
+
+usage() {
+    cat <<EOUSAGE
+Usage: ${progname} [-ciqV]
+  -c       clean binaries instead of compiling
+  -i       go Install instead of go Build
+  -q       be Quieter
+  -V       version: show the bare version stamp we would use and exit
+EOUSAGE
+}
+
+opt_go_action=build
+opt_cleaning=false
+opt_quiet=false
+opt_versiontag_showonly=false
+build_version=""
+while getopts 'B:chiqV' arg; do
+    case "$arg" in
+    B) build_version="$OPTARG" ;;
+    h) usage; exit 0 ;;
+    c) opt_cleaning=true ;;
+    i) opt_go_action=install ;;
+    q) opt_quiet=true ;;
+    V) opt_versiontag_showonly=true ;;
+    :) die "missing required option for -$OPTARG; see -h for help" ;;
+    \?) die "unknown option -$OPTARG; see -h for help" ;;
+    *) die "unhandled option -$arg; CODE BUG" ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+# We want some nice build variables embedded by the Go linker
+if [ ".$build_version" = "." ]; then
+    if branch="$(git symbolic-ref --short HEAD)"
+    then
+        if [ ".$branch" = ".master" ]; then
+            branch=""
+        elif [ ".$branch" = "." ]; then
+            branch=",detached"
+        else
+            branch=",$branch"
+        fi
+        build_version="$(git describe --always --dirty --tags)${branch}"
+        build_version="$(printf '%s' "$build_version" | tr '     ' '__')"
+    else
+        build_version="unknown-no-git-head"
+    fi
+fi
+build_timestamp="$(date +%s)"
+
+if $opt_versiontag_showonly; then
+    # DO NOT MAKE THIS PRETTIER
+    # This output is intended for scripting builds and getting a tag which
+    # can be put into file/package names.
+    printf '%s\n' "$build_version"
+    exit 0
+fi
+
+# By showing these here, you can correlate the output of one terminal window
+# with the logs in another window.
+pretty_build_time="$(
+  # GNU date: "date -d @TS"
+  # BSD date: "date -r TS"
+  fmt='+%Y-%m-%dT%H:%M:%SZ'
+  date -u -d "@${build_timestamp}" "$fmt" 2>/dev/null || date -u -r "${build_timestamp}" "$fmt" 2>/dev/null
+)"
+if ! $opt_quiet; then
+    printf "Build Info:\n"
+    printf "  Version    : %s\n" "$build_version"
+    printf "  Timestamp  : %s\t\t%s\n" "$build_timestamp" "$pretty_build_time"
+    printf "  Tags       : %s\n" "${build_tags:-<none>}"
+    printf "  Go Version : %s\n" "$(go version)"
+fi
+
+if [[ ! -v GOPATH ]] ; then
+    export GOPATH="$(go env GOPATH)"
+fi
+go_install_dir="${GOPATH%%:*}/bin"
+
+if $opt_cleaning && ! $opt_quiet ; then warn "Deleting files:"; fi
+
+# Same flag for both `rm` and `go build`
+verbose_flag=''
+$opt_quiet || verbose_flag='-v'
+
+for D in cmd/*; do
+    test -d "$D" || continue
+    case "$opt_go_action" in
+        build)   FN="$start_dir/$D/$(basename "$D")" ;;
+        install) FN="${go_install_dir}/$(basename "$D")" ;;
+        *) die "internal bug, unhandled opt_go_action '${opt_go_action}'" ;;
+    esac
+    if $opt_cleaning; then
+        rm -f $verbose_flag -- "$FN"
+        continue
+    fi
+    $opt_quiet || \
+      echo "Building: $D"
+    cd_or_die "$D"
+
+    # Each command is in main, which makes this easy.
+    go "$opt_go_action" $verbose_flag \
+        -tags "$build_tags" \
+        -ldflags "-X main.BuildVersion=${build_version} -X main.BuildTimeEpoch=${build_timestamp}"
+
+    $opt_quiet || \
+      ls -ld "$FN"
+    cd_or_die "$start_dir"
+done
+
+if $opt_cleaning && ! $opt_quiet ; then warn "Done"; fi

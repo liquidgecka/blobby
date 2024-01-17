@@ -1,0 +1,77 @@
+#!/bin/sh
+#
+# All checks that the code builds prior to commit.
+# BEWARE: this does build cleans, so will remove existing binaries.
+
+set -eu
+
+opt_quick=false
+
+progname="$(basename "$0" .sh)"
+case "$progname" in
+check)
+	cd "$(dirname "$0")/.." ;;
+pre-commit)
+	opt_quick=true ;;
+*)
+	printf >&2 '%s: WARNING: unknown invocation name\n' "$progname"
+	;;
+esac
+
+usage() {
+	cat <<EOUSAGE
+Usage: ${progname} [-q]
+ -q      Quick: more limited checks, for pre-commit checks
+
+Beware: check invokes "scripts/build -c" and so removes existing binaries,
+both before and after
+EOUSAGE
+}
+
+while getopts ':hq' arg; do
+	case "$arg" in
+	h) usage; exit 0 ;;
+	q) opt_quick=true ;;
+	:) die "missing required option for -$OPTARG; see -h for help" ;;
+	\?) die "unknown option -$OPTARG; see -h for help" ;;
+	*) die "unhandled option -$arg; CODE BUG" ;;
+	esac
+done
+shift $((OPTIND - 1))
+
+if ! $opt_quick; then
+	printf >&2 'Deleting any existing build\n'
+	./scripts/build -cq
+fi
+
+# See below also for go test, where we supply all tags at once
+for TAGS in ''; do
+	printf >&2 'Vetting with tags: %s\n' "${TAGS:-<none>}"
+	go vet -tags "$TAGS" ./...
+
+	if $opt_quick; then break; fi
+
+	printf >&2 'Building with tags: %s\n' "${TAGS:-<none>}"
+	RP_BUILD_TAGS="$TAGS" ./scripts/build -q
+done
+
+if ! $opt_quick; then
+	printf >&2 'Deleting any builds created during check\n'
+	./scripts/build -cq
+fi
+
+# Rethink this if we have incompatible tags
+printf >&2 'Running: go test ./...\n'
+go test -tags aws ./...
+
+printf >&2 'Checking for code problems and leaks\n'
+
+# config.Run is mutable and should only be fetched directly from certain places
+# nb: 'grep -q' seems to always return true, even if not found; so use stdio redir instead
+if grep --exclude-dir=cmd --exclude-dir=.git --exclude=check --exclude=.*.swp --exclude=*_test.go -Fr config.Run . > /dev/null ; then
+	printf >&2 "BUG: found config.Run reference outside of cmd\n"
+	grep --exclude-dir=cmd --exclude-dir=.git --exclude=check -Fr config.Run .
+	exit 1
+fi
+
+printf >&2 'All is well.\n'

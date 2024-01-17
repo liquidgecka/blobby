@@ -1,0 +1,72 @@
+# The intent of this compose file is to faciliate local testing of a replicated Blobby deployment.  Each individual
+# host is available on their respective port (2001, 2002, 2003) on localhost for the host, and on 172.20.0.0/24 at the
+# ips noted below.
+#
+# This is critical for testing code paths where a Blobby host proxies a request to another host.
+version: "3.8"
+volumes:
+  prometheus_data: {}
+
+networks:
+  blobby:
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+services:
+  blobby1:
+    image: blobby:latest
+    networks:
+      blobby:
+        ipv4_address: 172.20.0.2
+    command: /app/blobby -c /blobby.conf -console true
+    restart: always
+    ports:
+      - 2001:2001
+    volumes:
+      - ./docker-compose/conf/machine1.conf:/blobby.conf
+      - ./docker-compose/data/machine1:/data/blobby
+      - ./docker-compose/log/:/var/log/
+  blobby2:
+    image: blobby:latest
+    networks:
+      blobby:
+        ipv4_address: 172.20.0.3
+    command: /app/blobby -c /blobby.conf -console true
+    restart: always
+    ports:
+      - 2002:2002
+    volumes:
+      - ./docker-compose/conf/machine2.conf:/blobby.conf
+      - ./docker-compose/data/machine2:/data/blobby
+      - ./docker-compose/log/:/var/log/
+  blobby3:
+    image: blobby:latest
+    networks:
+      blobby:
+        ipv4_address: 172.20.0.4
+    command: /app/blobby -c /blobby.conf -console true
+    restart: always
+    ports:
+      - 2003:2003
+    volumes:
+      - ./docker-compose/conf/machine3.conf:/blobby.conf
+      - ./docker-compose/data/machine3:/data/blobby
+      - ./docker-compose/log/:/var/log/
+  prometheus:
+    image: prom/prometheus:v2.20.1
+    volumes:
+      - ./docker-compose/conf/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    ports:
+      - 9090:9090
+    #    links:
+    #      - cadvisor:cadvisor
+    #      - alertmanager:alertmanager
+    #    networks:
+    #      - back-tier
+    restart: always
