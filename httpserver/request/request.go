@@ -9,8 +9,8 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/iterable/blobby/internal/logging"
-	"github.com/iterable/blobby/internal/tracing"
+	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/internal/tracing"
 )
 
 var nextRequestID uint64

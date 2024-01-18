@@ -1,0 +1,21 @@
+name: Checks
+on:
+  - push
+jobs:
+  check:
+    strategy:
+      matrix:
+        os:
+          - "ubuntu-20.04"
+          - "ubuntu-22.04"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+      - run: sudo add-apt-repository ppa:longsleep/golang-backports
+      - run: sudo apt update
+      - run: sudo apt install golang-go
+      - run: go mod download
+      - run: go mod vendor
+      - run: ./scripts/check
+      - run: ./scripts/build

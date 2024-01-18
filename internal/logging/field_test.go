@@ -6,7 +6,7 @@ import (
 
 	"github.com/liquidgecka/testlib"
 
-	"github.com/iterable/blobby/internal/compat"
+	"github.com/liquidgecka/blobby/internal/compat"
 )
 
 func TestNewField(t *testing.T) {

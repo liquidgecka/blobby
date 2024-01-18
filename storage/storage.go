@@ -18,12 +18,12 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/s3"
 
-	"github.com/iterable/blobby/internal/backoff"
-	"github.com/iterable/blobby/internal/compat"
-	"github.com/iterable/blobby/internal/logging"
-	"github.com/iterable/blobby/storage/blastpath"
-	"github.com/iterable/blobby/storage/fid"
-	"github.com/iterable/blobby/storage/metrics"
+	"github.com/liquidgecka/blobby/internal/backoff"
+	"github.com/liquidgecka/blobby/internal/compat"
+	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/storage/blastpath"
+	"github.com/liquidgecka/blobby/storage/fid"
+	"github.com/liquidgecka/blobby/storage/metrics"
 )
 
 // Handles on disk storage for a Blobby instance.

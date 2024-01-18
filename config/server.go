@@ -8,10 +8,10 @@ import (
 	"net"
 	"time"
 
-	"github.com/iterable/blobby/httpserver"
-	"github.com/iterable/blobby/httpserver/access"
-	"github.com/iterable/blobby/httpserver/cookie"
-	"github.com/iterable/blobby/httpserver/secretloader"
+	"github.com/liquidgecka/blobby/httpserver"
+	"github.com/liquidgecka/blobby/httpserver/access"
+	"github.com/liquidgecka/blobby/httpserver/cookie"
+	"github.com/liquidgecka/blobby/httpserver/secretloader"
 )
 
 var (

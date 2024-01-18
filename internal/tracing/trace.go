@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/iterable/blobby/internal/compat"
+	"github.com/liquidgecka/blobby/internal/compat"
 )
 
 var (

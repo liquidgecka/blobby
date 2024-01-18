@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/iterable/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/internal/logging"
 )
 
 // An AES Key loader implementation.

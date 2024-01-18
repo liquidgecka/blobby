@@ -19,10 +19,10 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/liquidgecka/testlib"
 
-	"github.com/iterable/blobby/internal/backoff"
-	"github.com/iterable/blobby/internal/delayqueue"
-	"github.com/iterable/blobby/internal/workqueue"
-	"github.com/iterable/blobby/storage/fid"
+	"github.com/liquidgecka/blobby/internal/backoff"
+	"github.com/liquidgecka/blobby/internal/delayqueue"
+	"github.com/liquidgecka/blobby/internal/workqueue"
+	"github.com/liquidgecka/blobby/storage/fid"
 )
 
 func TestNew_PanicConditions(t *testing.T) {

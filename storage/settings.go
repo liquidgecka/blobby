@@ -7,10 +7,10 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 
-	"github.com/iterable/blobby/internal/delayqueue"
-	"github.com/iterable/blobby/internal/logging"
-	"github.com/iterable/blobby/internal/workqueue"
-	"github.com/iterable/blobby/storage/fid"
+	"github.com/liquidgecka/blobby/internal/delayqueue"
+	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/internal/workqueue"
+	"github.com/liquidgecka/blobby/storage/fid"
 )
 
 const (

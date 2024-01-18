@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/iterable/blobby/httpserver/request"
-	"github.com/iterable/blobby/httpserver/secretloader"
+	"github.com/liquidgecka/blobby/httpserver/request"
+	"github.com/liquidgecka/blobby/httpserver/secretloader"
 )
 
 // If a Request can be authenticated with Basic Auth then this will handle

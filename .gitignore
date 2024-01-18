@@ -1,0 +1,10 @@
+# Ignore vi swap files.
+*.swp
+
+# Ignore a built blobby file
+cmd/blobby/blobby
+cmd/loadtest/loadtest
+
+# Ignore vendor files.
+vendor/*
+!vendor/modules.txt

@@ -5,11 +5,11 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws/session"
 
-	"github.com/iterable/blobby/httpserver/remotes"
-	"github.com/iterable/blobby/httpserver/secretloader"
-	"github.com/iterable/blobby/internal/delayqueue"
-	"github.com/iterable/blobby/internal/workqueue"
-	"github.com/iterable/blobby/storage"
+	"github.com/liquidgecka/blobby/httpserver/remotes"
+	"github.com/liquidgecka/blobby/httpserver/secretloader"
+	"github.com/liquidgecka/blobby/internal/delayqueue"
+	"github.com/liquidgecka/blobby/internal/workqueue"
+	"github.com/liquidgecka/blobby/storage"
 )
 
 var (

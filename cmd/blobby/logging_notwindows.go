@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/iterable/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/internal/logging"
 )
 
 func SetupRotation() {

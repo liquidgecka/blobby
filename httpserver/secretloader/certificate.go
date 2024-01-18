@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/iterable/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/internal/logging"
 )
 
 // A Generic interface around certificate loading.

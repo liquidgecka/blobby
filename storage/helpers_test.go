@@ -7,7 +7,7 @@ import (
 
 	"github.com/liquidgecka/testlib"
 
-	"github.com/iterable/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/internal/logging"
 )
 
 func NewTestLogger() *logging.Logger {

@@ -3,7 +3,7 @@ package access
 import (
 	"net/http"
 
-	"github.com/iterable/blobby/httpserver/request"
+	"github.com/liquidgecka/blobby/httpserver/request"
 )
 
 // A tool used to validate that a given request is allowed to proceed. It

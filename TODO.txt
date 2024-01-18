@@ -1,2 +1,0 @@
-* Startup recovery of existing files.
-* GET support

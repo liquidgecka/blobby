@@ -3,10 +3,10 @@ package httpserver
 import (
 	"time"
 
-	"github.com/iterable/blobby/httpserver/access"
-	"github.com/iterable/blobby/httpserver/secretloader"
-	"github.com/iterable/blobby/internal/logging"
-	"github.com/iterable/blobby/storage"
+	"github.com/liquidgecka/blobby/httpserver/access"
+	"github.com/liquidgecka/blobby/httpserver/secretloader"
+	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/storage"
 )
 
 type Settings struct {

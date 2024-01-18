@@ -11,10 +11,10 @@ import (
 
 	"github.com/crewjam/saml"
 
-	"github.com/iterable/blobby/httpserver/cookie"
-	"github.com/iterable/blobby/httpserver/request"
-	"github.com/iterable/blobby/httpserver/secretloader"
-	"github.com/iterable/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/httpserver/cookie"
+	"github.com/liquidgecka/blobby/httpserver/request"
+	"github.com/liquidgecka/blobby/httpserver/secretloader"
+	"github.com/liquidgecka/blobby/internal/logging"
 )
 
 const (

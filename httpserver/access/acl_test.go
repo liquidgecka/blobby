@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/iterable/blobby/httpserver/request"
+	"github.com/liquidgecka/blobby/httpserver/request"
 	"github.com/liquidgecka/testlib"
 )
 

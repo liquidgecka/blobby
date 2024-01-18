@@ -10,7 +10,7 @@ import (
 
 	"github.com/liquidgecka/testlib"
 
-	"github.com/iterable/blobby/httpserver/request"
+	"github.com/liquidgecka/blobby/httpserver/request"
 )
 
 func makeIPNet(s string) net.IPNet {

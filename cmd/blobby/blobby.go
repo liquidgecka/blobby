@@ -7,10 +7,10 @@ import (
 	"runtime"
 	"strconv"
 
-	"github.com/iterable/blobby/config"
-	"github.com/iterable/blobby/httpserver"
-	"github.com/iterable/blobby/internal/delayqueue"
-	"github.com/iterable/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/config"
+	"github.com/liquidgecka/blobby/httpserver"
+	"github.com/liquidgecka/blobby/internal/delayqueue"
+	"github.com/liquidgecka/blobby/internal/logging"
 )
 
 // Common arguments.

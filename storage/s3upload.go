@@ -10,8 +10,8 @@ import (
 
 	"github.com/aws/aws-sdk-go/service/s3"
 
-	"github.com/iterable/blobby/internal/logging"
-	"github.com/iterable/blobby/storage/fid"
+	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/storage/fid"
 )
 
 // Uploads a file to S3, performing all necessary operations to get it into

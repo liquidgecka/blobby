@@ -4,7 +4,7 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/iterable/blobby/httpserver/request"
+	"github.com/liquidgecka/blobby/httpserver/request"
 )
 
 // Handles CIDR white listing requests.

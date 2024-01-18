@@ -3,8 +3,8 @@ package storage
 import (
 	"io"
 
-	"github.com/iterable/blobby/internal/logging"
-	"github.com/iterable/blobby/storage/fid"
+	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/storage/fid"
 )
 
 // When performing a read the arguments can be kind of fluid due to the way

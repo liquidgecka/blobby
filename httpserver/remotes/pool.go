@@ -5,7 +5,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/iterable/blobby/storage"
+	"github.com/liquidgecka/blobby/storage"
 )
 
 // Manages a pool of Remotes that can be used for operations with the

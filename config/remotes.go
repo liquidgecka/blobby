@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/iterable/blobby/httpserver/remotes"
-	"github.com/iterable/blobby/storage"
+	"github.com/liquidgecka/blobby/httpserver/remotes"
+	"github.com/liquidgecka/blobby/storage"
 )
 
 var (

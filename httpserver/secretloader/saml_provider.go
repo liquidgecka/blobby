@@ -15,7 +15,7 @@ import (
 	"github.com/crewjam/saml"
 	"github.com/crewjam/saml/samlsp"
 
-	"github.com/iterable/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/internal/logging"
 )
 
 // Loads SAML secrets from the secret sources and provides it as an

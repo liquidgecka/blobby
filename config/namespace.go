@@ -7,9 +7,9 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 
-	"github.com/iterable/blobby/httpserver"
-	"github.com/iterable/blobby/storage"
-	"github.com/iterable/blobby/storage/fid"
+	"github.com/liquidgecka/blobby/httpserver"
+	"github.com/liquidgecka/blobby/storage"
+	"github.com/liquidgecka/blobby/storage/fid"
 )
 
 var (

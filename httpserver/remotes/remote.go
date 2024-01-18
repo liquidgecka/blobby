@@ -9,7 +9,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/iterable/blobby/storage"
+	"github.com/liquidgecka/blobby/storage"
 )
 
 type Remote struct {

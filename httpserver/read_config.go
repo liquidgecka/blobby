@@ -3,9 +3,9 @@ package httpserver
 import (
 	"net/http"
 
-	"github.com/iterable/blobby/httpserver/access"
-	"github.com/iterable/blobby/internal/logging"
-	"github.com/iterable/blobby/storage/fid"
+	"github.com/liquidgecka/blobby/httpserver/access"
+	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/storage/fid"
 )
 
 // Passed to the Read() call to highlight which ID is being fetched.

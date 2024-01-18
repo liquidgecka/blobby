@@ -13,10 +13,10 @@ import (
 	"bou.ke/monkey"
 	"github.com/liquidgecka/testlib"
 
-	"github.com/iterable/blobby/internal/delayqueue"
-	"github.com/iterable/blobby/internal/logging"
-	"github.com/iterable/blobby/internal/workqueue"
-	"github.com/iterable/blobby/storage/fid"
+	"github.com/liquidgecka/blobby/internal/delayqueue"
+	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/internal/workqueue"
+	"github.com/liquidgecka/blobby/storage/fid"
 )
 
 func TestReplica_Compress(t *testing.T) {

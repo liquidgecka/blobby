@@ -8,7 +8,7 @@ import (
 
 	htpasswd "github.com/tg123/go-htpasswd"
 
-	"github.com/iterable/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/internal/logging"
 )
 
 // Loads an .htpasswd file style file from the secret.

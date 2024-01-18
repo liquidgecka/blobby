@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/iterable/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/internal/logging"
 )
 
 var (

@@ -5,8 +5,8 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/iterable/blobby/httpserver/access"
-	"github.com/iterable/blobby/httpserver/secretloader"
+	"github.com/liquidgecka/blobby/httpserver/access"
+	"github.com/liquidgecka/blobby/httpserver/secretloader"
 )
 
 var (

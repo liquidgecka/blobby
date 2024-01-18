@@ -6,10 +6,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/iterable/blobby/httpserver"
-	"github.com/iterable/blobby/internal/delayqueue"
-	"github.com/iterable/blobby/internal/logging"
-	"github.com/iterable/blobby/storage"
+	"github.com/liquidgecka/blobby/httpserver"
+	"github.com/liquidgecka/blobby/internal/delayqueue"
+	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/storage"
 
 	toml "github.com/pelletier/go-toml"
 )

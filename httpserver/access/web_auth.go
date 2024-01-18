@@ -7,9 +7,9 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/iterable/blobby/httpserver/cookie"
-	"github.com/iterable/blobby/httpserver/request"
-	"github.com/iterable/blobby/httpserver/secretloader"
+	"github.com/liquidgecka/blobby/httpserver/cookie"
+	"github.com/liquidgecka/blobby/httpserver/request"
+	"github.com/liquidgecka/blobby/httpserver/secretloader"
 )
 
 // A structure used for representing the auth cookie.

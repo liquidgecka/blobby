@@ -16,12 +16,12 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/iterable/blobby/httpserver/request"
-	"github.com/iterable/blobby/internal/compat"
-	"github.com/iterable/blobby/internal/logging"
-	"github.com/iterable/blobby/storage"
-	"github.com/iterable/blobby/storage/fid"
-	"github.com/iterable/blobby/storage/metrics"
+	"github.com/liquidgecka/blobby/httpserver/request"
+	"github.com/liquidgecka/blobby/internal/compat"
+	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/storage"
+	"github.com/liquidgecka/blobby/storage/fid"
+	"github.com/liquidgecka/blobby/storage/metrics"
 )
 
 // Used for tracking requests that are received by this server.

@@ -11,12 +11,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/iterable/blobby/internal/compat"
-	"github.com/iterable/blobby/internal/delayqueue"
-	"github.com/iterable/blobby/internal/human"
-	"github.com/iterable/blobby/internal/logging"
-	"github.com/iterable/blobby/storage/fid"
-	"github.com/iterable/blobby/storage/hasher"
+	"github.com/liquidgecka/blobby/internal/compat"
+	"github.com/liquidgecka/blobby/internal/delayqueue"
+	"github.com/liquidgecka/blobby/internal/human"
+	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/storage/fid"
+	"github.com/liquidgecka/blobby/storage/hasher"
 )
 
 const (

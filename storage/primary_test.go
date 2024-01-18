@@ -11,8 +11,8 @@ import (
 	"bou.ke/monkey"
 	"github.com/liquidgecka/testlib"
 
-	"github.com/iterable/blobby/internal/delayqueue"
-	"github.com/iterable/blobby/internal/workqueue"
+	"github.com/liquidgecka/blobby/internal/delayqueue"
+	"github.com/liquidgecka/blobby/internal/workqueue"
 )
 
 func TestPrimary_Insert(t *testing.T) {

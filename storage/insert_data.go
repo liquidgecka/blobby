@@ -3,7 +3,7 @@ package storage
 import (
 	"io"
 
-	"github.com/iterable/blobby/internal/tracing"
+	"github.com/liquidgecka/blobby/internal/tracing"
 )
 
 // When Calling Insert there are many different values that can be provided
