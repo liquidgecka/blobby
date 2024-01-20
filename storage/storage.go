@@ -2,10 +2,12 @@ package storage
 
 import (
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -20,7 +22,7 @@ import (
 
 	"github.com/liquidgecka/blobby/internal/backoff"
 	"github.com/liquidgecka/blobby/internal/compat"
-	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/internal/sloghelper"
 	"github.com/liquidgecka/blobby/storage/blastpath"
 	"github.com/liquidgecka/blobby/storage/fid"
 	"github.com/liquidgecka/blobby/storage/metrics"
@@ -337,7 +339,13 @@ func (s *Storage) Health() (bool, string) {
 // ID of the newly created object or an error if something went wrong.
 // If an error is returned then it is not safe to assume that the
 // data was successfully written.
-func (s *Storage) Insert(data *InsertData) (id string, err error) {
+func (s *Storage) Insert(
+	ctx context.Context,
+	data *InsertData,
+) (
+	id string,
+	err error,
+) {
 	// Metrics
 	s.metrics.PrimaryInserts.IncTotal()
 
@@ -358,7 +366,7 @@ func (s *Storage) Insert(data *InsertData) (id string, err error) {
 	// considered done for uploads then this call returns true, otherwise
 	// the file is allowed to be put back on the waiting queue for accepting
 	// more data.
-	if id, err = prim.Insert(data); err != nil {
+	if id, err = prim.Insert(ctx, data); err != nil {
 		// The primary file returned an error which means that it will no
 		// longer accept data so we need to remove it from our primaries
 		// pool so a new file will be opened when needed. Its not necessary
@@ -382,17 +390,24 @@ func (s *Storage) Insert(data *InsertData) (id string, err error) {
 
 // Reads an individual ID (provided via rc). This may involve directly talking
 // to S3, or talking to the remote machine that is serving the given ID.
-func (s *Storage) Read(rc ReadConfig) (io.ReadCloser, error) {
+func (s *Storage) Read(
+	ctx context.Context,
+	rc ReadConfig,
+) (
+	io.ReadCloser,
+	error,
+) {
 	// Debug logging so we know where to start.
 	log := rc.Logger()
 	if log == nil {
-		log = s.settings.BaseLogger.NewChild().
-			AddField("id", rc.ID()).
-			AddField("fid", rc.FIDString()).
-			AddField("start", rc.Start()).
-			AddField("length", rc.Length())
+		log = s.settings.BaseLogger.With(
+			sloghelper.String("id", rc.ID()),
+			sloghelper.String("fid", rc.FIDString()),
+			sloghelper.Uint64("start", rc.Start()),
+			sloghelper.Uint32("length", rc.Length()),
+		)
 	}
-	log.Debug("starting request processing.")
+	log.LogAttrs(ctx, slog.LevelDebug, "starting request processing.")
 
 	// First of all we can check to see if we have a copy of this fid
 	// stored locally. If we do then hurray we can serve this request
@@ -431,20 +446,24 @@ func (s *Storage) Read(rc ReadConfig) (io.ReadCloser, error) {
 		if err != nil {
 			// The file must have been removed before we were able to open
 			// it, in this case we need to just continue on.
-			log.Debug(""+
+			log.LogAttrs(
+				ctx,
+				slog.LevelDebug,
 				"Attempt at a file open failed, falling back to "+
-				"alternate options.",
-				logging.NewField("file", fn),
-				logging.NewFieldIface("error", err))
+					"alternate options.",
+				sloghelper.String("file", fn),
+				sloghelper.Error("error", err))
 		} else if _, err := fd.Seek(int64(rc.Start()), io.SeekStart); err != nil {
 			// There was an error seeking in the file. This is not expected
 			// but we can continue on pretending that the file was not
 			// able to be processed at all.
-			log.Debug(""+
+			log.LogAttrs(
+				ctx,
+				slog.LevelDebug,
 				"Attempt at a file seek failed, falling back to "+
-				"alternate options.",
-				logging.NewField("file", fn),
-				logging.NewFieldIface("error", err))
+					"alternate options.",
+				sloghelper.String("file", fn),
+				sloghelper.Error("error", err))
 		} else if n, err := fd.Seek(0, io.SeekCurrent); err != nil {
 			// After the above seek executes we want to find out where we
 			// are in the file, Seeking to 1000 in a 10 byte file will work
@@ -452,26 +471,33 @@ func (s *Storage) Read(rc ReadConfig) (io.ReadCloser, error) {
 			// offset to get the real location that the file pointer landed.
 			// Getting here means that the first seek worked, but the second
 			// didn't which is very odd and shouldn't ever happen.
-			log.Debug(""+
+			log.LogAttrs(
+				ctx,
+				slog.LevelDebug,
 				"Could not obtain the current offset of the file pointer, "+
-				"falling back to alternate options.",
-				logging.NewField("file", fn),
-				logging.NewFieldIface("error", err))
+					"falling back to alternate options.",
+				sloghelper.String("file", fn),
+				sloghelper.Error("error", err))
 		} else if uint64(n) != rc.Start() {
-			// The file was not large enough to get us to "start" as an offset
-			// and thus we need to return an error.
-			log.Debug(""+
+			// The file was not large enough to get us to "start"
+			// as an offset and thus we need to return an error.
+			log.LogAttrs(
+				ctx,
+				slog.LevelDebug,
 				"Short seek when attempting to find id, falling back to"+
-				"alternate options.",
-				logging.NewField("file", fn),
-				logging.NewFieldIface("seeked-offset", n))
+					"alternate options.",
+				slog.String("file", fn),
+				slog.Int64("seeked-offset", n))
 		} else {
 			// We have a file with the position at the right place,
 			// now we need to create a limited reader that will
-			// only read the number of bytes necessary for the operation.
-			log.Debug(
+			// only read the number of bytes necessary for the
+			// operation.
+			log.LogAttrs(
+				ctx,
+				slog.LevelDebug,
 				"Serving read request locally.",
-				logging.NewField("file", fn))
+				sloghelper.String("file", fn))
 			return &limitReadCloser{
 				RC: fd,
 				N:  int64(rc.Length()),
@@ -483,10 +509,12 @@ func (s *Storage) Read(rc ReadConfig) (io.ReadCloser, error) {
 	// we need to stop here. We only want to process local files which we have
 	// done.
 	if rc.LocalOnly() {
-		if log.DebugEnabled() {
-			log.Debug("" +
-				"Request was not found locally and Local Only was true, " +
-				"returning not found.")
+		if log.Enabled(ctx, slog.LevelDebug) {
+			log.LogAttrs(
+				ctx,
+				slog.LevelDebug,
+				"Request was not found locally and Local Only was true, "+
+					"returning not found.")
 		}
 		return nil, ErrNotFound(rc.ID())
 	}
@@ -498,36 +526,44 @@ func (s *Storage) Read(rc ReadConfig) (io.ReadCloser, error) {
 	if s.settings.MachineID == rc.Machine() {
 		// This file was created on this machine, no need to try reading it
 		// from a remote.
-		log.Debug("" +
-			"Data was created locally, but its not present. " +
-			"Falling back to S3.")
+		log.LogAttrs(
+			ctx,
+			slog.LevelDebug,
+			"Data was created locally, but its not present. "+
+				"Falling back to S3.")
 	} else if rcloser, err := s.settings.Read(rc); err == nil {
 		// There was no error which means that rc is fit for us to
 		// return to the called.
-		s.settings.BaseLogger.Debug(
+		s.settings.BaseLogger.LogAttrs(
+			ctx,
+			slog.LevelDebug,
 			"Serving data from a remote Blobby server.",
-			logging.NewFieldUint32("machine-id", rc.Machine()))
+			sloghelper.Uint32("machine-id", rc.Machine()))
 		return rcloser, nil
 	} else if _, ok := err.(ErrNotFound); ok {
 		// Getting a 404 back from the caller means that the object was not
 		// found locally on the remote side so now we can proceed
 		// to fetch from S3.
-		if log.DebugEnabled() {
-			log.Debug(""+
+		if log.Enabled(ctx, slog.LevelDebug) {
+			log.LogAttrs(
+				ctx,
+				slog.LevelDebug,
 				"The remote did not have the data locally. "+
-				"Falling back to S3.",
-				logging.NewFieldUint32("machine-id", rc.Machine()))
+					"Falling back to S3.",
+				sloghelper.Uint32("machine-id", rc.Machine()))
 		}
 	} else {
 		// There was an error fetching the file that was NOT a ErrNotFound
 		// error which could be a network issue, or machine issue on the
 		// other end. As such we need to log it and then fall back to an
 		// S3 fetch.
-		log.Warning(""+
+		log.LogAttrs(
+			ctx,
+			slog.LevelWarn,
 			"Error communicating with remote Blobby instance, "+
-			"Falling back to S3.",
-			logging.NewFieldUint32("machine-id", rc.Machine()),
-			logging.NewFieldIface("error", err))
+				"Falling back to S3.",
+			sloghelper.Uint32("machine-id", rc.Machine()),
+			sloghelper.Error("error", err))
 	}
 
 	// S3 only works if the file was not compressed when being uploaded
@@ -535,10 +571,12 @@ func (s *Storage) Read(rc ReadConfig) (io.ReadCloser, error) {
 	// a sentinel error to indicate that it is not possible to fetch
 	// the record.
 	if s.settings.Compress {
-		log.Debug("" +
-			"Local data is not available and the files are compressed " +
-			"in S3 which makes them impossible to seek in. Rejecting " +
-			"request")
+		log.LogAttrs(
+			ctx,
+			slog.LevelDebug,
+			"Local data is not available and the files are compressed "+
+				"in S3 which makes them impossible to seek in. Rejecting "+
+				"request")
 		return nil, ErrNotPossible{}
 	}
 
@@ -546,45 +584,65 @@ func (s *Storage) Read(rc ReadConfig) (io.ReadCloser, error) {
 	key := filepath.Join(
 		s.settings.S3BasePath,
 		s.settings.S3KeyFormat.Format(rc.FID()))
-	rng := fmt.Sprintf("bytes=%d-%d", rc.Start(), rc.Start()+uint64(rc.Length())-1)
+	rng := fmt.Sprintf(
+		"bytes=%d-%d",
+		rc.Start(),
+		rc.Start()+uint64(rc.Length())-1)
 	goi := s3.GetObjectInput{
 		Bucket: &s.settings.S3Bucket,
 		Key:    &key,
 		Range:  &rng,
 	}
-	log.AddField("bucket", s.settings.S3Bucket)
-	log.AddField("key", *goi.Key)
+	log = log.With(
+		sloghelper.String("bucket", s.settings.S3Bucket),
+		sloghelper.String("key", *goi.Key))
 	goo, err := s.settings.S3Client.GetObject(&goi)
 	if err != nil {
 		if awsErr, ok := err.(awserr.Error); ok {
 			switch awsErr.Code() {
 			case s3.ErrCodeNoSuchBucket:
-				log.Error("AWS S3 Bucket does not exist.")
+				log.LogAttrs(
+					ctx,
+					slog.LevelError,
+					"AWS S3 Bucket does not exist.")
 				return nil, fmt.Errorf("S3 bucket does not exist.")
 			case s3.ErrCodeNoSuchKey:
-				log.Debug("Object was not found in S3.")
+				log.LogAttrs(
+					ctx,
+					slog.LevelDebug,
+					"Object was not found in S3.")
 				return nil, ErrNotFound(rc.ID())
 			}
 		}
-		log.Error(
+		log.With(
+			ctx,
+			slog.LevelError,
 			"Error calling the S3 API.",
-			logging.NewFieldIface("error", err))
+			sloghelper.Error("error", err))
 		return nil, err
 	} else if goo.ContentLength == nil {
 		// There was no length returned which means we can not be sure
 		// that this is the right data.
-		log.Warning("S3 did not return a Content-Length header.")
+		log.LogAttrs(
+			ctx,
+			slog.LevelWarn,
+			"S3 did not return a Content-Length header.")
 		return nil, fmt.Errorf("Missing content-length")
 	} else if *goo.ContentLength != int64(rc.Length()) {
 		// The wrong length was returned.
-		log.Warning(
+		log.LogAttrs(
+			ctx,
+			slog.LevelWarn,
 			"S3 returned an invalid Content-Length header.",
-			logging.NewFieldUint32("expected", rc.Length()),
-			logging.NewFieldInt64("got", *goo.ContentLength))
+			sloghelper.Uint32("expected", rc.Length()),
+			sloghelper.Int64("got", *goo.ContentLength))
 		return nil, fmt.Errorf("Invalid content-length.")
-	} else if log.DebugEnabled() {
+	} else if log.Enabled(ctx, slog.LevelDebug) {
 		// The request can be satisfied via S3 directly.
-		log.Debug("Serving read request from S3.")
+		log.LogAttrs(
+			ctx,
+			slog.LevelDebug,
+			"Serving read request from S3.")
 	}
 
 	// As an added security precaution we make sure that we do not serve
@@ -595,7 +653,7 @@ func (s *Storage) Read(rc ReadConfig) (io.ReadCloser, error) {
 
 // Performs a Heart Beat on a replica. The only error condition here is that
 // the replica does not exist.
-func (s *Storage) ReplicaHeartBeat(fn string) error {
+func (s *Storage) ReplicaHeartBeat(ctx context.Context, fn string) error {
 	s.metrics.ReplicaHeartBeats.IncTotal()
 	repl := func(fn string) *replica {
 		s.replicasLock.Lock()
@@ -606,7 +664,7 @@ func (s *Storage) ReplicaHeartBeat(fn string) error {
 		s.metrics.ReplicaHeartBeats.IncFailures()
 		return ErrReplicaNotFound(fn)
 	}
-	if err := repl.HeartBeat(); err != nil {
+	if err := repl.HeartBeat(ctx); err != nil {
 		s.metrics.ReplicaHeartBeats.IncFailures()
 		return err
 	}
@@ -615,7 +673,7 @@ func (s *Storage) ReplicaHeartBeat(fn string) error {
 }
 
 // Initializes a new replica in this Storage instance.
-func (s *Storage) ReplicaInitialize(fn string) error {
+func (s *Storage) ReplicaInitialize(ctx context.Context, fn string) error {
 	// Metrics
 	s.metrics.ReplicaInitializes.IncTotal()
 
@@ -624,9 +682,10 @@ func (s *Storage) ReplicaInitialize(fn string) error {
 	repl := &replica{
 		settings: &s.settings,
 		storage:  s,
-		log: s.settings.BaseLogger.NewChild().
-			AddField("fid", fn).
-			AddField("type", "replica"),
+		log: s.settings.BaseLogger.With(
+			sloghelper.String("fid", fn),
+			sloghelper.String("type", "replica"),
+		),
 	}
 	if err := repl.fid.Parse(fn); err != nil {
 		s.metrics.ReplicaInitializes.IncFailures()
@@ -655,7 +714,7 @@ func (s *Storage) ReplicaInitialize(fn string) error {
 	}
 
 	// Open the replica file.
-	if err := repl.Open(); err != nil {
+	if err := repl.Open(ctx); err != nil {
 		s.metrics.ReplicaInitializes.IncFailures()
 		return err
 	}
@@ -666,7 +725,11 @@ func (s *Storage) ReplicaInitialize(fn string) error {
 }
 
 // Performs a replica replication call.
-func (s *Storage) ReplicaReplicate(fn string, rc RemoteReplicateConfig) error {
+func (s *Storage) ReplicaReplicate(
+	ctx context.Context,
+	fn string,
+	rc RemoteReplicateConfig,
+) error {
 	s.metrics.ReplicaReplicates.IncTotal()
 	repl := func(fn string) *replica {
 		s.replicasLock.Lock()
@@ -677,7 +740,7 @@ func (s *Storage) ReplicaReplicate(fn string, rc RemoteReplicateConfig) error {
 		s.metrics.ReplicaReplicates.IncFailures()
 		return ErrReplicaNotFound(fn)
 	}
-	if err := repl.Replicate(rc); err != nil {
+	if err := repl.Replicate(ctx, rc); err != nil {
 		s.metrics.ReplicaReplicates.IncFailures()
 		return err
 	} else {
@@ -687,7 +750,7 @@ func (s *Storage) ReplicaReplicate(fn string, rc RemoteReplicateConfig) error {
 }
 
 // Queues a replica file for deletion.
-func (s *Storage) ReplicaQueueDelete(fn string) error {
+func (s *Storage) ReplicaQueueDelete(ctx context.Context, fn string) error {
 	s.metrics.ReplicaQueueDeletes.IncTotal()
 	repl := func(fn string) *replica {
 		s.replicasLock.Lock()
@@ -701,49 +764,12 @@ func (s *Storage) ReplicaQueueDelete(fn string) error {
 		s.metrics.ReplicaQueueDeletes.IncSuccesses()
 		return nil
 	}
-	if err := repl.QueueDelete(); err != nil {
+	if err := repl.QueueDelete(ctx); err != nil {
 		s.metrics.ReplicaQueueDeletes.IncFailures()
 		return err
 	} else {
 		s.metrics.ReplicaQueueDeletes.IncSuccesses()
 		return nil
-	}
-}
-
-// Sets debug logging to either true or false.
-func (s *Storage) SetDebugging(enable bool) {
-	if enable {
-		s.settings.BaseLogger.EnableDebug()
-		func() {
-			s.replicasLock.Lock()
-			defer s.replicasLock.Unlock()
-			for _, r := range s.replicas {
-				r.log.EnableDebug()
-			}
-		}()
-		func() {
-			s.replicasLock.Lock()
-			defer s.replicasLock.Unlock()
-			for _, m := range s.primaries {
-				m.log.EnableDebug()
-			}
-		}()
-	} else {
-		s.settings.BaseLogger.DisableDebug()
-		func() {
-			s.replicasLock.Lock()
-			defer s.replicasLock.Unlock()
-			for _, r := range s.replicas {
-				r.log.DisableDebug()
-			}
-		}()
-		func() {
-			s.replicasLock.Lock()
-			defer s.replicasLock.Unlock()
-			for _, m := range s.primaries {
-				m.log.DisableDebug()
-			}
-		}()
 	}
 }
 
@@ -753,22 +779,24 @@ func (s *Storage) SetDebugging(enable bool) {
 // as a replica that is in the Uploading state in order to ensure that
 // the data is written to S3 as quickly as possible since it may be from
 // a failed instance.
-func (s *Storage) Start() error {
+func (s *Storage) Start(ctx context.Context) error {
 	// Check the directory for pre-existing blobby files and for each
 	// add them as a replica.
 	files, err := ioutil.ReadDir(s.settings.BaseDirectory)
 	if err != nil {
 		s.settings.BaseLogger.Error(
 			"Error scanning for existing files.",
-			logging.NewFieldIface("error", err))
+			sloghelper.Error("error", err))
 		return err
 	}
 	for _, file := range files {
 		if !file.Mode().IsRegular() {
 			// Ignore anything that is not a regular file.
-			s.settings.BaseLogger.Debug(
+			s.settings.BaseLogger.LogAttrs(
+				ctx,
+				slog.LevelDebug,
 				"Ignoring irregular file",
-				logging.NewField("file", file.Name()))
+				sloghelper.String("file", file.Name()))
 			continue
 		}
 		fidStr := strings.TrimPrefix(file.Name(), "r-")
@@ -776,17 +804,20 @@ func (s *Storage) Start() error {
 			fidStr:   fidStr,
 			settings: &s.settings,
 			storage:  s,
-			log: s.settings.BaseLogger.NewChild().
-				AddField("fid", fidStr).
-				AddField("type", "replica"),
+			log: s.settings.BaseLogger.With(
+				sloghelper.String("fid", fidStr),
+				sloghelper.String("type", "replica"),
+			),
 			offset: uint64(file.Size()),
 		}
 		if err := repl.fid.Parse(repl.fidStr); err != nil {
 			// The file is not a valid blobby file, as such it needs to
 			// be ignored as well.
-			s.settings.BaseLogger.Debug(
+			s.settings.BaseLogger.LogAttrs(
+				ctx,
+				slog.LevelDebug,
 				"Ignoring non blobby data file, its no a valid fid.",
-				logging.NewField("file", file.Name()))
+				sloghelper.String("file", file.Name()))
 			continue
 		}
 		repl.s3key = filepath.Join(
@@ -802,8 +833,8 @@ func (s *Storage) Start() error {
 			// blobby.
 			repl.log.Error(
 				"Error opening existing data file.",
-				logging.NewField("file", file.Name()),
-				logging.NewFieldIface("error", err))
+				sloghelper.String("file", file.Name()),
+				sloghelper.Error("error", err))
 			return err
 		}
 		func() {
@@ -813,9 +844,9 @@ func (s *Storage) Start() error {
 		}()
 		repl.log.Info("Found pre-existing replica on disk at startup.")
 		if s.settings.Compress {
-			repl.setState(replicaStatePendingCompression)
+			repl.setState(ctx, replicaStatePendingCompression)
 		} else {
-			repl.setState(replicaStatePendingUpload)
+			repl.setState(ctx, replicaStatePendingUpload)
 		}
 	}
 
@@ -899,7 +930,7 @@ func (s *Storage) checkIdleFiles() {
 		of = atomic.LoadInt32(&s.appendablePrimaries)
 		if of < s.settings.OpenFilesMinimum {
 			atomic.AddInt32(&s.appendablePrimaries, 1)
-			go s.openNewPrimaryFile()
+			go s.openNewPrimaryFile(context.Background()) // FIXME
 		} else {
 			break
 		}
@@ -921,57 +952,64 @@ func (s *Storage) checkIdleFiles() {
 	// simple power of 2, but instead a less aggressive curve.
 	if s.waiting.waiting > 1<<uint32(of) {
 		atomic.AddInt32(&s.appendablePrimaries, 1)
-		go s.openNewPrimaryFile()
+		go s.openNewPrimaryFile(context.Background()) // FIXME
 		return
 	}
 }
 
 // Opens a new primary file and places it in the idle pool. This is expected
 // to be run as a goroutine so it does not return errors.
-func (s *Storage) openNewPrimaryFile() {
+func (s *Storage) openNewPrimaryFile(ctx context.Context) {
 	// Metrics
 	s.metrics.PrimaryOpens.IncTotal()
 
 	// Create a logger that we can use for logging information about this
 	// primary file creation.
-	plog := s.settings.BaseLogger.NewChild().
-		AddField("type", "primary")
+	plog := s.settings.BaseLogger.With(
+		sloghelper.String("type", "primary"),
+	)
 
 	// See if we need to delay due to previous failures, and if so log that
 	// then delay.
 	if delay := s.newFileBackOff.Wait(); delay > 0 {
-		plog.Warning(
+		plog.LogAttrs(
+			ctx,
+			slog.LevelWarn,
 			"Delaying primary file creation due to previous errors.",
-			logging.NewField("delay", delay.String()))
+			sloghelper.String("delay", delay.String()))
 		time.Sleep(delay)
 	}
 
 	// Get a list of replicas that should be used for this new primary and
 	// then add them to the logger so that they will appear in the list
 	// for each log line.
-	plog.Debug("Assigning replicas")
+	plog.LogAttrs(ctx, slog.LevelDebug, "Assigning replicas")
 	var err error
 	remotes, err := s.settings.AssignRemotes(s.settings.Replicas)
 	if err != nil {
 		// Log the error for debugging.
-		plog.Error(
+		plog.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"Error assigning replicas.",
-			logging.NewFieldIface("error", err))
+			sloghelper.Error("error", err))
 
 		// Since opening the primary file failed we need to start the
 		// process of opening a new file. We do not need to worry about
 		// adjusting the appendablePrimaries function though since nothing
 		// will have decremented it.
-		go s.openNewPrimaryFile()
+		go s.openNewPrimaryFile(context.Background()) // FIXME
 		s.newFileBackOff.Failure()
 		return
 	}
+	attrs := make([]interface{}, len(remotes))
 	for i := range remotes {
-		plog.AddField(
+		attrs[i] = sloghelper.String(
 			"replica-"+strconv.FormatInt(int64(i), 10),
 			remotes[i].String())
 	}
-	plog.Debug("Replicas assigned.")
+	plog = plog.With(attrs...)
+	plog.LogAttrs(ctx, slog.LevelDebug, "Replicas assigned.")
 
 	// Start generating the primary structure that we will use for this
 	// primary. We do not want to add this to the map of primaries until
@@ -990,8 +1028,8 @@ func (s *Storage) openNewPrimaryFile() {
 	p.s3key = filepath.Join(
 		s.settings.S3BasePath,
 		s.settings.S3KeyFormat.Format(p.fid))
-	plog.AddField("primary-fid", p.fidStr)
-	plog.Debug("Assigning fid to the new primary.")
+	plog = plog.With(sloghelper.String("primary-fid", p.fidStr))
+	plog.LogAttrs(ctx, slog.LevelDebug, "Assigning fid to the new primary.")
 
 	// Generate the base structure for the new primary file and add it to the
 	// list of all primary files so that it can be processed.
@@ -1002,7 +1040,7 @@ func (s *Storage) openNewPrimaryFile() {
 	}()
 
 	// Open the file on disk.
-	if ok := p.Open(); !ok {
+	if ok := p.Open(ctx); !ok {
 		// If the Open call fails it will automatically have moved the file
 		// into the appropriate state to be cleaned up and removed from
 		// the above map. This in turn will also decrement our
@@ -1012,7 +1050,7 @@ func (s *Storage) openNewPrimaryFile() {
 		// failure above. We will simply terminate and allow the
 		// checkPrimaries operation do the heavy lifting later.
 		s.newFileBackOff.Failure()
-		plog.Error("Failed to open new master file.")
+		plog.LogAttrs(ctx, slog.LevelError, "Failed to open new master file.")
 		return
 	}
 

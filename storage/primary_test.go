@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
@@ -55,7 +56,7 @@ func TestPrimary_Insert(t *testing.T) {
 			queue *delayqueue.DelayQueue,
 			token *delayqueue.Token,
 			t time.Time,
-			f func(),
+			f func(context.Context),
 		) {
 			return
 		},
@@ -94,7 +95,7 @@ func TestPrimary_Insert(t *testing.T) {
 	}
 
 	// Perform the insert.
-	id, err := p.Insert(&insertData)
+	id, err := p.Insert(context.Background(), &insertData)
 	T.ExpectSuccess(err)
 	T.NotEqual(id, "")
 
@@ -149,7 +150,7 @@ func TestPrimary_Insert_ReadError(t *testing.T) {
 			queue *delayqueue.DelayQueue,
 			token *delayqueue.Token,
 			t time.Time,
-			f func(),
+			f func(context.Context),
 		) {
 			return
 		},
@@ -190,7 +191,7 @@ func TestPrimary_Insert_ReadError(t *testing.T) {
 	}
 
 	// Perform the insert.
-	id, err := p.Insert(&insertData)
+	id, err := p.Insert(context.Background(), &insertData)
 	T.ExpectErrorMessage(err, "EXPECTED")
 	T.Equal(id, "")
 
@@ -245,7 +246,7 @@ func TestPrimary_Insert_RemoteIsNil(t *testing.T) {
 			queue *delayqueue.DelayQueue,
 			token *delayqueue.Token,
 			t time.Time,
-			f func(),
+			f func(context.Context),
 		) {
 			return
 		},
@@ -255,7 +256,7 @@ func TestPrimary_Insert_RemoteIsNil(t *testing.T) {
 	// scheduled.
 	defer monkey.Patch(
 		(*workqueue.WorkQueue).Insert,
-		func(q *workqueue.WorkQueue, f func()) {
+		func(q *workqueue.WorkQueue, f func(context.Context)) {
 			return
 		},
 	).Unpatch()
@@ -285,7 +286,7 @@ func TestPrimary_Insert_RemoteIsNil(t *testing.T) {
 	}
 
 	// Perform the insert.
-	id, err := p.Insert(&insertData)
+	id, err := p.Insert(context.Background(), &insertData)
 	T.ExpectErrorMessage(
 		err,
 		"Replication failed: Remote failed on a previous step.")
@@ -342,7 +343,7 @@ func TestPrimary_Insert_ReplicationFails(t *testing.T) {
 			queue *delayqueue.DelayQueue,
 			token *delayqueue.Token,
 			t time.Time,
-			f func(),
+			f func(context.Context),
 		) {
 			return
 		},
@@ -352,7 +353,7 @@ func TestPrimary_Insert_ReplicationFails(t *testing.T) {
 	// scheduled.
 	defer monkey.Patch(
 		(*workqueue.WorkQueue).Insert,
-		func(q *workqueue.WorkQueue, f func()) {
+		func(q *workqueue.WorkQueue, f func(context.Context)) {
 			return
 		},
 	).Unpatch()
@@ -390,7 +391,7 @@ func TestPrimary_Insert_ReplicationFails(t *testing.T) {
 	}
 
 	// Perform the insert.
-	id, err := p.Insert(&insertData)
+	id, err := p.Insert(context.Background(), &insertData)
 	T.ExpectErrorMessage(err, "Replication failed: test_remote: EXPECTED")
 	T.Equal(id, "")
 
@@ -442,7 +443,7 @@ func TestPrimary_Insert_ShortRead(t *testing.T) {
 			queue *delayqueue.DelayQueue,
 			token *delayqueue.Token,
 			t time.Time,
-			f func(),
+			f func(context.Context),
 		) {
 			return
 		},
@@ -481,7 +482,7 @@ func TestPrimary_Insert_ShortRead(t *testing.T) {
 	}
 
 	// Perform the insert.
-	id, err := p.Insert(&insertData)
+	id, err := p.Insert(context.Background(), &insertData)
 	T.ExpectErrorMessage(err, "Short read from client.")
 	T.Equal(id, "")
 
@@ -533,7 +534,7 @@ func TestPrimary_Insert_WriteError(t *testing.T) {
 			queue *delayqueue.DelayQueue,
 			token *delayqueue.Token,
 			t time.Time,
-			f func(),
+			f func(context.Context),
 		) {
 			return
 		},
@@ -543,7 +544,7 @@ func TestPrimary_Insert_WriteError(t *testing.T) {
 	// scheduled.
 	defer monkey.Patch(
 		(*workqueue.WorkQueue).Insert,
-		func(q *workqueue.WorkQueue, f func()) {
+		func(q *workqueue.WorkQueue, f func(context.Context)) {
 			return
 		},
 	).Unpatch()
@@ -584,7 +585,7 @@ func TestPrimary_Insert_WriteError(t *testing.T) {
 	T.ExpectSuccess(p.fd.Close())
 
 	// Perform the insert.
-	id, err := p.Insert(&insertData)
+	id, err := p.Insert(context.Background(), &insertData)
 	T.ExpectErrorMessage(err, "file already closed")
 	T.Equal(id, "")
 

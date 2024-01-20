@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 
 	"github.com/liquidgecka/blobby/httpserver"
+	"github.com/liquidgecka/blobby/internal/sloghelper"
 	"github.com/liquidgecka/blobby/storage"
 	"github.com/liquidgecka/blobby/storage/fid"
 )
@@ -114,10 +115,9 @@ func (n *nameSpace) getNameSpaceSettings() *httpserver.NameSpaceSettings {
 // called after logging is initialized!
 func (n *nameSpace) Storage() *storage.Storage {
 	if n.storage == nil {
-		l := n.top.Log.logger.
-			NewChild().
-			AddField("component", "storage").
-			AddField("namespace", n.name)
+		l := n.top.Log.logger.With(
+			sloghelper.String("component", "storage"),
+			sloghelper.String("namespace", n.name))
 		awsSession, _ := n.top.getAWSSession(*n.AWSProfile)
 		uploader := s3manager.NewUploader(awsSession)
 		s3client := s3.New(awsSession)

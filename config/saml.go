@@ -7,6 +7,7 @@ import (
 
 	"github.com/liquidgecka/blobby/httpserver/access"
 	"github.com/liquidgecka/blobby/httpserver/secretloader"
+	"github.com/liquidgecka/blobby/internal/sloghelper"
 )
 
 var (
@@ -65,11 +66,10 @@ type saml struct {
 }
 
 func (s *saml) initLogging() {
-	s.certs.Logger = s.top.Log.logger.
-		NewChild().
-		AddField("component", "saml-cert-loader").
-		AddField("certificate-url", *s.CertificateURL).
-		AddField("private-key-url", *s.PrivateKeyURL)
+	s.certs.Logger = s.top.Log.logger.With(
+		sloghelper.String("component", "saml-cert-loader"),
+		sloghelper.String("certificate-url", *s.CertificateURL),
+		sloghelper.String("private-key-url", *s.PrivateKeyURL))
 }
 
 // Generates a SAML return URL that should be used for the given resource.

@@ -1,11 +1,11 @@
 package httpserver
 
 import (
+	"log/slog"
 	"time"
 
 	"github.com/liquidgecka/blobby/httpserver/access"
 	"github.com/liquidgecka/blobby/httpserver/secretloader"
-	"github.com/liquidgecka/blobby/internal/logging"
 	"github.com/liquidgecka/blobby/storage"
 )
 
@@ -40,12 +40,12 @@ type Settings struct {
 	ShutDownACL *access.ACL
 
 	// The Logger that will be used for all logs.
-	Logger *logging.Logger
+	Logger *slog.Logger
 
 	// HTTP requests will be logged to this logger for access/request
 	// logging. This is optional, if its left nil then no access logging
 	// will be processed.
-	AccessLogger *logging.Logger
+	AccessLogger *slog.Logger
 
 	// These settings will be mapped into the underlying http.Server
 	// object.

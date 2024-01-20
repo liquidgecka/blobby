@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -464,14 +465,14 @@ func TestStorage_ReplicaHeartBeat(t *testing.T) {
 
 	// If the replica doesn't exist then this should return an error.
 	T.ExpectErrorMessage(
-		s.ReplicaHeartBeat("not_found"),
+		s.ReplicaHeartBeat(context.Background(), "not_found"),
 		"not_found is not a known replica.",
 	)
 	T.Equal(s.metrics.ReplicaHeartBeats.Total, int64(1))
 	T.Equal(s.metrics.ReplicaHeartBeats.Failures, int64(1))
 
 	// And if it does exist we expect success.
-	T.ExpectSuccess(s.ReplicaHeartBeat("test"))
+	T.ExpectSuccess(s.ReplicaHeartBeat(context.Background(), "test"))
 	T.Equal(s.metrics.ReplicaHeartBeats.Total, int64(2))
 	T.Equal(s.metrics.ReplicaHeartBeats.Successes, int64(1))
 }
@@ -504,7 +505,7 @@ func TestStorage_ReplicaQueueDelete(t *testing.T) {
 
 	// If the replica does not exist then we expect no error
 	// to be returned.
-	T.ExpectSuccess(s.ReplicaQueueDelete("not_found"))
+	T.ExpectSuccess(s.ReplicaQueueDelete(context.Background(), "not_found"))
 	T.Equal(s.metrics.ReplicaQueueDeletes.Total, int64(1))
 	T.Equal(s.metrics.ReplicaQueueDeletes.Successes, int64(1))
 
@@ -512,7 +513,7 @@ func TestStorage_ReplicaQueueDelete(t *testing.T) {
 	// deleted properly and we should expect it to have its state
 	// changed accordingly.
 	r.state = replicaStateWaiting
-	T.ExpectSuccess(s.ReplicaQueueDelete("test"))
+	T.ExpectSuccess(s.ReplicaQueueDelete(context.Background(), "test"))
 	T.Equal(r.state, replicaStatePendingDelete)
 	T.Equal(s.metrics.ReplicaQueueDeletes.Total, int64(2))
 	T.Equal(s.metrics.ReplicaQueueDeletes.Successes, int64(2))
@@ -520,41 +521,12 @@ func TestStorage_ReplicaQueueDelete(t *testing.T) {
 	// And if the replica is in a bad state then it can't be deleted.
 	r.state = -1
 	T.ExpectErrorMessage(
-		s.ReplicaQueueDelete("test"),
+		s.ReplicaQueueDelete(context.Background(), "test"),
 		"Can not delete the replica, its in the wrong state:")
 	T.Equal(r.state, int32(-1))
 	T.Equal(s.metrics.ReplicaQueueDeletes.Total, int64(3))
 	T.Equal(s.metrics.ReplicaQueueDeletes.Successes, int64(2))
 	T.Equal(s.metrics.ReplicaQueueDeletes.Failures, int64(1))
-}
-
-func TestStorage_SetDebugging(t *testing.T) {
-	T := testlib.NewT(t)
-	defer T.Finish()
-
-	log := NewTestLogger()
-	plog := log.NewChild()
-	rlog := log.NewChild()
-
-	s := Storage{
-		primaries: map[string]*primary{
-			"test": &primary{log: plog},
-		},
-		replicas: map[string]*replica{
-			"test": &replica{log: rlog},
-		},
-		settings: Settings{
-			BaseLogger: log,
-		},
-	}
-	s.SetDebugging(true)
-	T.Equal(log.DebugEnabled(), true)
-	T.Equal(plog.DebugEnabled(), true)
-	T.Equal(rlog.DebugEnabled(), true)
-	s.SetDebugging(false)
-	T.Equal(log.DebugEnabled(), false)
-	T.Equal(plog.DebugEnabled(), false)
-	T.Equal(rlog.DebugEnabled(), false)
 }
 
 func TestStorage_Status(t *testing.T) {
@@ -647,7 +619,9 @@ func TestStorage_Start(t *testing.T) {
 		checkIdleFilesRun := false
 		defer monkey.Patch(
 			(*Storage).checkIdleFiles,
-			func(*Storage) { checkIdleFilesRun = true },
+			func(*Storage) {
+				checkIdleFilesRun = true
+			},
 		).Unpatch()
 
 		// On startup the replica will have its state set to the right
@@ -655,11 +629,11 @@ func TestStorage_Start(t *testing.T) {
 		// out this function to prevent that.
 		defer monkey.Patch(
 			(*replica).setState,
-			func(r *replica, s int32) {},
+			func(r *replica, ctx context.Context, s int32) {},
 		).Unpatch()
 
 		// Check that startup works.
-		T.ExpectSuccess(s.Start())
+		T.ExpectSuccess(s.Start(context.Background()))
 		T.TryUntil(
 			func() bool { return checkIdleFilesRun },
 			time.Second,
@@ -695,7 +669,9 @@ func TestStorage_Start_BadDirectory(t *testing.T) {
 		},
 		replicas: make(map[string]*replica, 10),
 	}
-	T.ExpectErrorMessage(s.Start(), "no such file or directory")
+	T.ExpectErrorMessage(
+		s.Start(context.Background()),
+		"no such file or directory")
 }
 
 func TestStorage_Start_OpenFailure(t *testing.T) {
@@ -722,7 +698,9 @@ func TestStorage_Start_OpenFailure(t *testing.T) {
 		},
 		replicas: make(map[string]*replica, 10),
 	}
-	T.ExpectErrorMessage(s.Start(), "permission denied")
+	T.ExpectErrorMessage(
+		s.Start(context.Background()),
+		"permission denied")
 }
 
 func TestStorage_PrimaryStateChange(t *testing.T) {

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/hex"
@@ -12,6 +13,7 @@ import (
 	"github.com/liquidgecka/blobby/httpserver/access"
 	"github.com/liquidgecka/blobby/httpserver/cookie"
 	"github.com/liquidgecka/blobby/httpserver/secretloader"
+	"github.com/liquidgecka/blobby/internal/sloghelper"
 )
 
 var (
@@ -156,34 +158,31 @@ type server struct {
 	tlsCerts *secretloader.Certificate
 }
 
-func (s *server) initLogging() {
+func (s *server) initLogging(ctx context.Context) {
 	if s.AccessLog != nil {
-		s.AccessLog.initLogging()
+		s.AccessLog.initLogging(ctx)
 	}
 	if s.DebugPathsACL != nil {
-		s.DebugPathsACL.initLogging()
+		s.DebugPathsACL.initLogging(ctx)
 	}
 	if s.HealthCheckACL != nil {
-		s.HealthCheckACL.initLogging()
+		s.HealthCheckACL.initLogging(ctx)
 	}
 	if s.tlsCerts != nil {
-		s.tlsCerts.Logger = s.top.Log.logger.
-			NewChild().
-			AddField("component", "tls-loader").
-			AddField("certificate-url", *s.TLSCertURL).
-			AddField("private-key-url", *s.TLSKeyURL)
+		s.tlsCerts.Logger = s.top.Log.logger.With(
+			sloghelper.String("component", "tls-loader"),
+			sloghelper.String("certificate-url", *s.TLSCertURL),
+			sloghelper.String("private-key-url", *s.TLSKeyURL))
 	}
 	if s.webUsersHTPasswd != nil {
-		s.webUsersHTPasswd.Logger = s.top.Log.logger.
-			NewChild().
-			AddField("component", "htpasswd-loader").
-			AddField("url", *s.WebUsersHTPasswdURL)
+		s.webUsersHTPasswd.Logger = s.top.Log.logger.With(
+			sloghelper.String("component", "htpasswd-loader"),
+			sloghelper.String("url", *s.WebUsersHTPasswdURL))
 	}
 	if s.aesKeysLoader != nil {
-		s.aesKeysLoader.Logger = s.top.Log.logger.
-			NewChild().
-			AddField("url", *s.AESKeysURL).
-			AddField("component", "aes-keys-loader")
+		s.aesKeysLoader.Logger = s.top.Log.logger.With(
+			sloghelper.String("url", *s.AESKeysURL),
+			sloghelper.String("component", "aes-keys-loader"))
 	}
 }
 
@@ -220,9 +219,9 @@ func (s *server) Server() httpserver.Server {
 			}
 		}
 
-		logger := s.top.Log.logger.
-			NewChild().
-			AddField("component", "http-server")
+		logger := s.top.Log.logger.With(
+			sloghelper.String("component", "http-server"),
+		)
 		settings := &httpserver.Settings{
 			Addr:                s.Addr.String(),
 			DebugPathsACL:       s.DebugPathsACL.access(),
@@ -567,15 +566,16 @@ func (s *server) validate(t *top) []string {
 // to convert a list into a function which is what this wrapper does.
 type aesKeyList []cipher.Block
 
-func (a aesKeyList) Get() ([]cipher.Block, error) {
+func (a aesKeyList) Get(_ context.Context) ([]cipher.Block, error) {
 	return []cipher.Block(a), nil
 }
 
 // This initially came from the golang source code which is released under
 // a MIT style license that requires attribution:
-//   https://golang.org/src/net/dnsclient.go
-//   Copyright (c) 2009 The Go Authors. All rights reserved.
-//   https://golang.org/LICENSE
+//
+//	https://golang.org/src/net/dnsclient.go
+//	Copyright (c) 2009 The Go Authors. All rights reserved.
+//	https://golang.org/LICENSE
 //
 // Its inclusion here is purely because its not public in the net package,
 // and I needed a way to validate that a host name given as a configuration

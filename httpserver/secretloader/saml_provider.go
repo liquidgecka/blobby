@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"sync"
@@ -15,7 +16,7 @@ import (
 	"github.com/crewjam/saml"
 	"github.com/crewjam/saml/samlsp"
 
-	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/internal/sloghelper"
 )
 
 // Loads SAML secrets from the secret sources and provides it as an
@@ -54,8 +55,13 @@ type SAMLProvider struct {
 
 // Makes an authentication request that can be used against the SAML
 // provider in order to start the authentication process.
-func (s *SAMLProvider) AuthenticationRequest() (*saml.AuthnRequest, error) {
-	sp, err := s.provider()
+func (s *SAMLProvider) AuthenticationRequest(
+	ctx context.Context,
+) (
+	*saml.AuthnRequest,
+	error,
+) {
+	sp, err := s.provider(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -63,8 +69,8 @@ func (s *SAMLProvider) AuthenticationRequest() (*saml.AuthnRequest, error) {
 }
 
 // Returns the Meta Data object for this ServicePRovider.
-func (s *SAMLProvider) MetaData() (*saml.EntityDescriptor, error) {
-	sp, err := s.provider()
+func (s *SAMLProvider) MetaData(ctx context.Context) (*saml.EntityDescriptor, error) {
+	sp, err := s.provider(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -76,11 +82,13 @@ func (s *SAMLProvider) MetaData() (*saml.EntityDescriptor, error) {
 // that was generated when the request to authenticate was started and
 // a http.Request object that can be used for form reading.
 func (s *SAMLProvider) ParseResponse(
-	r *http.Request, id string,
+	ctx context.Context,
+	r *http.Request,
+	id string,
 ) (
 	*saml.Assertion, error,
 ) {
-	sp, err := s.provider()
+	sp, err := s.provider(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -98,14 +106,14 @@ func (s *SAMLProvider) ParseResponse(
 // If the SAML Provider uses a secret URL that is configured to preload
 // then this will automatically load the SAML Provider, otherwise this
 // does nothing and returns nil.
-func (s *SAMLProvider) PreLoad() error {
+func (s *SAMLProvider) PreLoad(ctx context.Context) error {
 	switch {
 	case s == nil:
 		return nil
-	case s.Certificate.Certificate.PreLoad():
-		return s.load()
-	case s.Certificate.Private.PreLoad():
-		return s.load()
+	case s.Certificate.Certificate.PreLoad(ctx):
+		return s.load(ctx)
+	case s.Certificate.Private.PreLoad(ctx):
+		return s.load(ctx)
 	default:
 		return nil
 	}
@@ -113,37 +121,37 @@ func (s *SAMLProvider) PreLoad() error {
 
 // Starts a background goroutine that will automatically refresh the
 // SAML ServiceProvider as configured by the parameters in the secret
-// loaders used. This will continue to run until the provided channel is
-// closed.
-func (s *SAMLProvider) StartRefresher(stop <-chan struct{}) {
+// loaders used. This will continue to run until the provided context
+// is canceled.
+func (s *SAMLProvider) StartRefresher(ctx context.Context) {
 	switch {
 	case s == nil:
-	case s.Certificate.Certificate != nil && s.Certificate.Certificate.Stale():
-	case s.Certificate.Private != nil && s.Certificate.Private.Stale():
+	case s.Certificate.Certificate != nil && s.Certificate.Certificate.Stale(ctx):
+	case s.Certificate.Private != nil && s.Certificate.Private.Stale(ctx):
 	default:
 		dur := s.Certificate.Certificate.CacheDuration()
 		if dur2 := s.Certificate.Private.CacheDuration(); dur2 < dur {
 			dur = dur2
 		}
 		if dur > 0 {
-			go s.refresher(dur, stop)
+			go s.refresher(dur, ctx)
 		}
 	}
 }
 
 // Returns the currently active saml.ServiceProvider object. If one has not
 // been initialized then this will return an error.
-func (s *SAMLProvider) provider() (*saml.ServiceProvider, error) {
+func (s *SAMLProvider) provider(ctx context.Context) (*saml.ServiceProvider, error) {
 	s.serviceProviderLock.Lock()
 	defer s.serviceProviderLock.Unlock()
 	for i := 0; i < 5; i++ {
 		switch {
 		case s.serviceProvider == nil:
-			s.load()
-		case s.Certificate.Certificate.IsStale():
-			s.load()
-		case s.Certificate.Private.IsStale():
-			s.load()
+			s.load(ctx)
+		case s.Certificate.Certificate.IsStale(ctx):
+			s.load(ctx)
+		case s.Certificate.Private.IsStale(ctx):
+			s.load(ctx)
 		default:
 			return s.serviceProvider, nil
 		}
@@ -152,7 +160,7 @@ func (s *SAMLProvider) provider() (*saml.ServiceProvider, error) {
 }
 
 // Loads the provider from the data in the secrets.
-func (s *SAMLProvider) load() error {
+func (s *SAMLProvider) load(ctx context.Context) error {
 	wg := sync.WaitGroup{}
 	var certRaw, keyRaw []byte
 	var certErr, keyErr error
@@ -162,11 +170,11 @@ func (s *SAMLProvider) load() error {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		certRaw, certErr = s.Certificate.Certificate.Fetch()
+		certRaw, certErr = s.Certificate.Certificate.Fetch(ctx)
 	}()
 	go func() {
 		defer wg.Done()
-		keyRaw, keyErr = s.Certificate.Private.Fetch()
+		keyRaw, keyErr = s.Certificate.Private.Fetch(ctx)
 	}()
 	wg.Wait()
 	if certErr != nil {
@@ -180,8 +188,8 @@ func (s *SAMLProvider) load() error {
 	if err != nil {
 		return fmt.Errorf(
 			"Error loading certificate from '%s'/'%s': %s'",
-			s.Certificate.Certificate.URL(),
-			s.Certificate.Private.URL(),
+			s.Certificate.Certificate.URL(ctx),
+			s.Certificate.Private.URL(ctx),
 			err.Error())
 	}
 
@@ -219,7 +227,7 @@ func (s *SAMLProvider) load() error {
 				return fmt.Errorf(""+
 					"Error loading intermediate certificate %d from (%s): %s",
 					count+2,
-					s.Certificate.Certificate.URL(),
+					s.Certificate.Certificate.URL(ctx),
 					err.Error())
 			} else {
 				intermediates = append(intermediates, cert)
@@ -258,10 +266,12 @@ func (s *SAMLProvider) load() error {
 	// Parse and generate the URLs used for the SAML identity provider
 	// to access this service provider.
 	if u, err := url.Parse(s.ACSURL); err != nil {
-		s.Logger.Error(
+		s.Logger.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"Invalid ACS URL",
-			logging.NewField("acs_url", s.ACSURL),
-			logging.NewFieldIface("error", err))
+			sloghelper.String("acs_url", s.ACSURL),
+			sloghelper.Error("error", err))
 		return fmt.Errorf(
 			"The configured ACS URL (%s) is invalid: %s",
 			s.ACSURL,
@@ -270,10 +280,12 @@ func (s *SAMLProvider) load() error {
 		sp.AcsURL = *u
 	}
 	if u, err := url.Parse(s.MetaDataURL); err != nil {
-		s.Logger.Error(
+		s.Logger.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"Invalid Meta Data URL",
-			logging.NewField("meta_data_url", s.MetaDataURL),
-			logging.NewFieldIface("error", err))
+			sloghelper.String("meta_data_url", s.MetaDataURL),
+			sloghelper.Error("error", err))
 		return fmt.Errorf(
 			"The configured Meta Data URL (%s) is invalid: %s",
 			s.MetaDataURL,
@@ -282,10 +294,12 @@ func (s *SAMLProvider) load() error {
 		sp.MetadataURL = *u
 	}
 	if u, err := url.Parse(s.SLOURL); err != nil {
-		s.Logger.Error(
+		s.Logger.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"Invalid SLO URL",
-			logging.NewField("slo_url", s.SLOURL),
-			logging.NewFieldIface("error", err))
+			sloghelper.String("slo_url", s.SLOURL),
+			sloghelper.Error("error", err))
 		return fmt.Errorf(
 			"The configured SLO URL (%s) is invalid: %s",
 			s.SLOURL,
@@ -301,7 +315,7 @@ func (s *SAMLProvider) load() error {
 
 // Reloads the secret on an interval until the stop channel is closed. This
 // is expected to be run as a goroutine.
-func (s *SAMLProvider) refresher(dur time.Duration, stop <-chan struct{}) {
+func (s *SAMLProvider) refresher(dur time.Duration, ctx context.Context) {
 	timer := time.NewTimer(dur)
 	defer func() {
 		if !timer.Stop() {
@@ -310,15 +324,20 @@ func (s *SAMLProvider) refresher(dur time.Duration, stop <-chan struct{}) {
 	}()
 	for {
 		select {
-		case <-stop:
+		case <-ctx.Done():
 			return
 		case <-timer.C:
 		}
-		s.Certificate.Logger.Debug("Refreshing the certificate data.")
-		if err := s.load(); err != nil {
-			s.Certificate.Logger.Error(
+		s.Certificate.Logger.LogAttrs(
+			ctx,
+			slog.LevelDebug,
+			"Refreshing the certificate data.")
+		if err := s.load(ctx); err != nil {
+			s.Certificate.Logger.LogAttrs(
+				ctx,
+				slog.LevelError,
 				"Error refreshing the certificate data.",
-				logging.NewFieldIface("error", err))
+				sloghelper.Error("error", err))
 		}
 	}
 }

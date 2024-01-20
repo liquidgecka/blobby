@@ -2,13 +2,13 @@ package storage
 
 import (
 	"io"
+	"log/slog"
 	"time"
 
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 
 	"github.com/liquidgecka/blobby/internal/delayqueue"
-	"github.com/liquidgecka/blobby/internal/logging"
 	"github.com/liquidgecka/blobby/internal/workqueue"
 	"github.com/liquidgecka/blobby/storage/fid"
 )
@@ -43,7 +43,7 @@ type Settings struct {
 
 	// If this is set to something other than nil then logging will be
 	// written to this output.
-	BaseLogger *logging.Logger
+	BaseLogger *slog.Logger
 
 	// When set to true then the file will be compressed before its uploaded
 	// to S3. This will break the ability to fetch identifiers not found in

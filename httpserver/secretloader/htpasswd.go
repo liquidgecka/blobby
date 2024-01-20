@@ -2,13 +2,15 @@ package secretloader
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
 	htpasswd "github.com/tg123/go-htpasswd"
 
-	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/internal/sloghelper"
 )
 
 // Loads an .htpasswd file style file from the secret.
@@ -17,7 +19,7 @@ type HTPasswd struct {
 	Source Loader
 
 	// All logging for this loader will be done via this logger.
-	Logger *logging.Logger
+	Logger *slog.Logger
 
 	// A list of users and associated groups.
 	usersLock sync.Mutex
@@ -25,23 +27,23 @@ type HTPasswd struct {
 }
 
 // Preloads the htpasswd file if configured to do so.
-func (h *HTPasswd) PreLoad() error {
+func (h *HTPasswd) PreLoad(ctx context.Context) error {
 	if h == nil {
 		return nil
 	} else if h.Source == nil {
 		return nil
-	} else if !h.Source.PreLoad() {
+	} else if !h.Source.PreLoad(ctx) {
 		return nil
 	}
-	_, err := h.load()
+	_, err := h.load(ctx)
 	return err
 }
 
 // Starts the cache refresher.
-func (h *HTPasswd) StartRefresher(stop <-chan struct{}) {
-	if h.Source.Stale() {
+func (h *HTPasswd) StartRefresher(ctx context.Context) {
+	if h.Source.Stale(ctx) {
 		dur := h.Source.CacheDuration()
-		go h.refresher(dur, stop)
+		go h.refresher(dur, ctx)
 	}
 }
 
@@ -49,10 +51,17 @@ func (h *HTPasswd) StartRefresher(stop <-chan struct{}) {
 // values represent true if the user exists, true if the user exists and
 // has the given tags, and an error if something goes wrong during the
 // secret fetching process.
-func (h *HTPasswd) HasTags(user string, tags []string) (bool, error) {
+func (h *HTPasswd) HasTags(
+	ctx context.Context,
+	user string,
+	tags []string,
+) (
+	bool,
+	error,
+) {
 	var candidates []htpasswdLine
-	if h.Source.IsStale() {
-		if all, err := h.load(); err != nil {
+	if h.Source.IsStale(ctx) {
+		if all, err := h.load(ctx); err != nil {
 			return false, err
 		} else {
 			candidates = all[user]
@@ -79,10 +88,17 @@ func (h *HTPasswd) HasTags(user string, tags []string) (bool, error) {
 
 // Verifies that a user with with the given password exists in the
 // hapassword map, and that the user has all of the tags provided.
-func (h *HTPasswd) Verify(user, pass string, tags []string) (bool, error) {
+func (h *HTPasswd) Verify(
+	ctx context.Context,
+	user, pass string,
+	tags []string,
+) (
+	bool,
+	error,
+) {
 	var candidates []htpasswdLine
-	if h.Source.IsStale() {
-		if all, err := h.load(); err != nil {
+	if h.Source.IsStale(ctx) {
+		if all, err := h.load(ctx); err != nil {
 			return false, err
 		} else {
 			candidates = all[user]
@@ -108,9 +124,14 @@ func (h *HTPasswd) Verify(user, pass string, tags []string) (bool, error) {
 }
 
 // Loads the htpasswd file from the secret.
-func (h *HTPasswd) load() (map[string][]htpasswdLine, error) {
+func (h *HTPasswd) load(
+	ctx context.Context,
+) (
+	map[string][]htpasswdLine,
+	error,
+) {
 	// Get the raw source data.
-	raw, err := h.Source.Fetch()
+	raw, err := h.Source.Fetch(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -151,18 +172,20 @@ func (h *HTPasswd) load() (map[string][]htpasswdLine, error) {
 	}
 
 	// Save the results if there were no errors.
-	h.Logger.Debug(
+	h.Logger.LogAttrs(
+		ctx,
+		slog.LevelDebug,
 		"Loaded htpasswd file.",
-		logging.NewFieldIface("users", len(users)))
+		sloghelper.Int("users", len(users)))
 	h.usersLock.Lock()
 	defer h.usersLock.Unlock()
 	h.users = users
 	return users, nil
 }
 
-// Reloads the secret on an interval until the stop channel is closed. This
+// Reloads the secret on an interval until the context is canceled. This
 // is expected to be run as a goroutine.
-func (h *HTPasswd) refresher(dur time.Duration, stop <-chan struct{}) {
+func (h *HTPasswd) refresher(dur time.Duration, ctx context.Context) {
 	timer := time.NewTimer(dur)
 	defer func() {
 		if !timer.Stop() {
@@ -171,15 +194,20 @@ func (h *HTPasswd) refresher(dur time.Duration, stop <-chan struct{}) {
 	}()
 	for {
 		select {
-		case <-stop:
+		case <-ctx.Done():
 			return
 		case <-timer.C:
 		}
-		h.Logger.Debug("Refreshing the htpasswd data.")
-		if _, err := h.load(); err != nil {
-			h.Logger.Error(
+		h.Logger.LogAttrs(
+			ctx,
+			slog.LevelDebug,
+			"Refreshing the htpasswd data.")
+		if _, err := h.load(ctx); err != nil {
+			h.Logger.LogAttrs(
+				ctx,
+				slog.LevelError,
 				"Error refreshing the htpasswd data.",
-				logging.NewFieldIface("error", err))
+				sloghelper.Error("error", err))
 		}
 	}
 }

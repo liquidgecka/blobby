@@ -60,6 +60,12 @@ if ! $opt_quick; then
 	./scripts/build -cq
 fi
 
+printf >&2 'Running: gofmt check.\n'
+if find * -type f -not -name vendor -name \*.go -not -path 'vendor/*' -print0 | xargs -0 gofmt -l | grep . ; then
+	printf >&2 'Files with format errors found.\n'
+	exit 1
+fi
+
 # Rethink this if we have incompatible tags
 printf >&2 'Running: go test ./...\n'
 go test -tags aws ./...

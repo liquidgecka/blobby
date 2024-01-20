@@ -1,6 +1,7 @@
 package workqueue
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -30,7 +31,7 @@ func TestWorkQueue_Insert_Simple(t *testing.T) {
 	// Making sure that inserting 10 items results in 10 items being in
 	// the list.
 	for i := 0; i < 10; i++ {
-		w.Insert(func() { atomic.AddInt32(&ran, 1) })
+		w.Insert(func(context.Context) { atomic.AddInt32(&ran, 1) })
 	}
 
 	// Check that all ten items were added.
@@ -63,7 +64,7 @@ func TestWorkQueue_Insert_Long(t *testing.T) {
 	// Making sure that inserting 10 items results in 10 items being in
 	// the list.
 	for i := 0; i < 5000; i++ {
-		w.Insert(func() { atomic.AddInt32(&ran, 1) })
+		w.Insert(func(context.Context) { atomic.AddInt32(&ran, 1) })
 	}
 	T.Equal(ran, int32(0))
 	T.Equal(w.nextIndex, 0)
@@ -86,7 +87,7 @@ func TestWorkQueue_Cycle(t *testing.T) {
 	tooMany := false
 	w := New(parallel)
 	for i := int32(0); i < tests; i++ {
-		w.Insert(func() {
+		w.Insert(func(context.Context) {
 			if atomic.AddInt32(&running, 1) > int32(parallel) {
 				tooMany = true
 			}
@@ -125,7 +126,7 @@ func TestWorkQueue_Parallel(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		for i := 0; i < 100000; i++ {
 			wg.Add(1)
-			w.Insert(func() {
+			w.Insert(func(context.Context) {
 				atomic.AddInt64(&run, 1)
 				wg.Done()
 			})

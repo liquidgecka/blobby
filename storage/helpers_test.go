@@ -1,21 +1,17 @@
 package storage
 
 import (
-	"bufio"
+	"context"
 	"io"
-	"io/ioutil"
+	"log/slog"
 
 	"github.com/liquidgecka/testlib"
 
-	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/internal/sloghelper"
 )
 
-func NewTestLogger() *logging.Logger {
-	buffer := bufio.NewWriter(ioutil.Discard)
-	output := logging.NewPlainOutput(buffer)
-	logger := logging.NewLogger(output)
-	logger.EnableDebug()
-	return logger
+func NewTestLogger() *slog.Logger {
+	return slog.New(sloghelper.DiscardHandler{})
 }
 
 func InitializeTestableStorage(T *testlib.T) *Storage {
@@ -23,7 +19,7 @@ func InitializeTestableStorage(T *testlib.T) *Storage {
 		BaseDirectory: T.TempDir(),
 	}
 	s := New(settings)
-	s.Start()
+	s.Start(context.Background())
 	return s
 }
 

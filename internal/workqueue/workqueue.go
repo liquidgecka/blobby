@@ -1,6 +1,7 @@
 package workqueue
 
 import (
+	"context"
 	"sync"
 )
 
@@ -52,7 +53,7 @@ func New(parallel int) *WorkQueue {
 }
 
 // Inserts a function into the work queue.
-func (w *WorkQueue) Insert(f func()) {
+func (w *WorkQueue) Insert(f func(context.Context)) {
 	if f == nil {
 		return
 	}
@@ -93,7 +94,7 @@ func (w *WorkQueue) process() {
 	}()
 	for {
 		// Get the next item from the queue.
-		next, ok := func() (func(), bool) {
+		next, ok := func() (func(context.Context), bool) {
 			w.lock.Lock()
 			defer w.lock.Unlock()
 			for w.next == w.last && w.nextIndex == w.lastIndex {
@@ -132,7 +133,7 @@ func (w *WorkQueue) process() {
 		if !ok {
 			return
 		} else {
-			next()
+			next(context.Background()) // FIXME
 		}
 	}
 }

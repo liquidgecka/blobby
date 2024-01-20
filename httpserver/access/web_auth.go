@@ -75,7 +75,7 @@ func (w *WebAuthProvider) LoginGet(ir *request.Request) {
 		PassField: fmt.Sprintf("pass%d", rand.Int()),
 		UserField: fmt.Sprintf("user%d", rand.Int()),
 	}
-	raw, err := w.CookieTool.Encode(&token)
+	raw, err := w.CookieTool.Encode(ir.Context, &token)
 	if err != nil {
 		panic(&request.HTTPError{
 			Status:   http.StatusInternalServerError,
@@ -133,7 +133,7 @@ func (w *WebAuthProvider) LoginPost(ir *request.Request) {
 			Status:   http.StatusBadRequest,
 			Response: "Missing token form field.",
 		})
-	} else if err := w.CookieTool.Decode(raw[0], &token); err != nil {
+	} else if err := w.CookieTool.Decode(ir.Context, raw[0], &token); err != nil {
 		// FIXME: Detect the difference between an internal error and bad data
 		// being passed to the request.
 		panic(&request.HTTPError{
@@ -181,7 +181,7 @@ func (w *WebAuthProvider) LoginPost(ir *request.Request) {
 	}
 
 	// Validate that the provided user and password credentials are valid.
-	ok, err = w.Users.Verify(user[0], pass[0], nil)
+	ok, err = w.Users.Verify(ir.Context, user[0], pass[0], nil)
 	if err != nil {
 		panic(&request.HTTPError{
 			Status:   http.StatusInternalServerError,
@@ -203,7 +203,7 @@ func (w *WebAuthProvider) LoginPost(ir *request.Request) {
 			Time: time.Now().Add(w.CookieValidity),
 		},
 	}
-	raw, err := w.CookieTool.Encode(&cookie)
+	raw, err := w.CookieTool.Encode(ir.Context, &cookie)
 	if err != nil {
 		panic(&request.HTTPError{
 			Status:   http.StatusInternalServerError,
@@ -256,12 +256,12 @@ func (w *WebAuth) check(ir *request.Request) bool {
 		return false
 	}
 	v := webAuthCookie{}
-	if err = w.Provider.CookieTool.Decode(cook.Value, &v); err != nil {
+	if err = w.Provider.CookieTool.Decode(ir.Context, cook.Value, &v); err != nil {
 		return false
 	} else if v.Expires.Before(time.Now()) {
 		return false
 	}
-	ok, err := w.Provider.Users.HasTags(v.User, w.UserTags)
+	ok, err := w.Provider.Users.HasTags(ir.Context, v.User, w.UserTags)
 	if err != nil {
 		return false
 	}

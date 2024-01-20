@@ -1,17 +1,19 @@
 package secretloader
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/internal/sloghelper"
 )
 
 // An AES Key loader implementation.
@@ -21,7 +23,7 @@ type AESKeys struct {
 
 	// All logging for the certificate manager will be done via this Logger
 	// object.
-	Logger *logging.Logger
+	Logger *slog.Logger
 
 	// A cache of the certificate that was generated via the prior load()
 	// call.
@@ -30,9 +32,9 @@ type AESKeys struct {
 }
 
 // Returns the current list of keys loaded from the secret.
-func (a *AESKeys) Keys() ([]cipher.Block, error) {
-	if a.Source.IsStale() {
-		if keys, err := a.load(); err != nil {
+func (a *AESKeys) Keys(ctx context.Context) ([]cipher.Block, error) {
+	if a.Source.IsStale(ctx) {
+		if keys, err := a.load(ctx); err != nil {
 			return nil, err
 		} else {
 			a.keysLock.Lock()
@@ -47,30 +49,30 @@ func (a *AESKeys) Keys() ([]cipher.Block, error) {
 	}
 }
 
-func (a *AESKeys) PreLoad() error {
+func (a *AESKeys) PreLoad(ctx context.Context) error {
 	if a == nil {
 		return nil
 	} else if a.Source == nil {
 		return nil
-	} else if !a.Source.PreLoad() {
+	} else if !a.Source.PreLoad(ctx) {
 		return nil
 	}
-	_, err := a.load()
+	_, err := a.load(ctx)
 	return err
 }
 
 // Starts the cache refresher.
-func (a *AESKeys) StartRefresher(stop <-chan struct{}) {
-	if a.Source.Stale() {
+func (a *AESKeys) StartRefresher(ctx context.Context) {
+	if a.Source.Stale(ctx) {
 		dur := a.Source.CacheDuration()
-		go a.refresher(dur, stop)
+		go a.refresher(dur, ctx)
 	}
 }
 
 // Loads the AES keys from the secret.
-func (a *AESKeys) load() ([]cipher.Block, error) {
+func (a *AESKeys) load(ctx context.Context) ([]cipher.Block, error) {
 	// Get the raw source data.
-	aesRaw, err := a.Source.Fetch()
+	aesRaw, err := a.Source.Fetch(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +131,7 @@ func (a *AESKeys) load() ([]cipher.Block, error) {
 	return a.keys, nil
 }
 
-func (a *AESKeys) refresher(dur time.Duration, stop <-chan struct{}) {
+func (a *AESKeys) refresher(dur time.Duration, ctx context.Context) {
 	timer := time.NewTimer(dur)
 	defer func() {
 		if !timer.Stop() {
@@ -138,15 +140,20 @@ func (a *AESKeys) refresher(dur time.Duration, stop <-chan struct{}) {
 	}()
 	for {
 		select {
-		case <-stop:
+		case <-ctx.Done():
 			return
 		case <-timer.C:
 		}
-		a.Logger.Debug("Refreshing the AES keys.")
-		if _, err := a.load(); err != nil {
-			a.Logger.Error(
+		a.Logger.LogAttrs(
+			ctx,
+			slog.LevelDebug,
+			"Refreshing the AES keys.")
+		if _, err := a.load(ctx); err != nil {
+			a.Logger.LogAttrs(
+				ctx,
+				slog.LevelError,
 				"Error refreshing the AES keys.",
-				logging.NewFieldIface("error", err))
+				sloghelper.Error("error", err))
 		}
 	}
 }

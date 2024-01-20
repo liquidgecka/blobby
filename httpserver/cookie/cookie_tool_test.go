@@ -3,6 +3,7 @@ package cookie
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/base64"
@@ -33,13 +34,13 @@ func TestCookieTool(t *testing.T) {
 	T.ExpectSuccess(err)
 	aesKeys := []cipher.Block{a}
 	ct := CookieTool{
-		AESKeys: func() ([]cipher.Block, error) {
+		AESKeys: func(context.Context) ([]cipher.Block, error) {
 			return aesKeys, ae
 		},
 	}
 
 	// Encode the cookie.
-	raw, err := ct.Encode(&want)
+	raw, err := ct.Encode(context.Background(), &want)
 	T.ExpectSuccess(err)
 	// Value computed elsewhere and encoded static here.
 	T.Equal(raw, ""+
@@ -47,7 +48,7 @@ func TestCookieTool(t *testing.T) {
 		`Xbuxx1VggtgOT35wNGefG3JXAeKJAiYmtSKIUkoQghw`)
 
 	// Decode using a single AES key.
-	T.ExpectSuccess(ct.Decode(raw, &have))
+	T.ExpectSuccess(ct.Decode(context.Background(), raw, &have))
 	T.Equal(have, want)
 
 	// Add a AES key at the start of the list, then try again which will
@@ -59,7 +60,7 @@ func TestCookieTool(t *testing.T) {
 	a2, err := aes.NewCipher(nk[:])
 	T.ExpectSuccess(err)
 	aesKeys = []cipher.Block{a2, a}
-	T.ExpectSuccess(ct.Decode(raw, &have))
+	T.ExpectSuccess(ct.Decode(context.Background(), raw, &have))
 	T.Equal(have, want)
 }
 
@@ -88,20 +89,27 @@ func TestCookieTool_Decode(t *testing.T) {
 	// Test 1: Invalid base64 encoded data.
 	ct := CookieTool{}
 	T.ExpectErrorMessage(
-		ct.Decode("****", struct{}{}),
+		ct.Decode(context.Background(), "****", struct{}{}),
 		"Invalid base64 encoded value.",
 	)
 
 	// Test 2: AESKeys function returns an error.
-	ct = CookieTool{AESKeys: func() ([]cipher.Block, error) {
+	ct = CookieTool{AESKeys: func(context.Context) ([]cipher.Block, error) {
 		return nil, fmt.Errorf("EXPECTED")
 	}}
-	T.ExpectErrorMessage(ct.Decode("AAAAAA", struct{}{}), "EXPECTED")
+	T.ExpectErrorMessage(
+		ct.Decode(
+			context.Background(),
+			"AAAAAA",
+			struct{}{},
+		),
+		"EXPECTED",
+	)
 
 	// Test 3: The cipher can not be used because the raw data size is not
 	// a multiple of the block size.
 	bsCalled := false
-	aeskeys := func() ([]cipher.Block, error) {
+	aeskeys := func(context.Context) ([]cipher.Block, error) {
 		return []cipher.Block{
 			&testCipher{
 				blockSize: func() int {
@@ -116,14 +124,14 @@ func TestCookieTool_Decode(t *testing.T) {
 	}
 	ct = CookieTool{AESKeys: aeskeys}
 	T.ExpectErrorMessage(
-		ct.Decode("AAAAAAAAAAAA", struct{}{}),
+		ct.Decode(context.Background(), "AAAAAAAAAAAA", struct{}{}),
 		"Cookie was not valid.")
 	T.Equal(bsCalled, true)
 
 	// Test 4: The data hash is not valid.
 	bsCalled = false
 	decryptCalls := 0
-	aeskeys = func() ([]cipher.Block, error) {
+	aeskeys = func(context.Context) ([]cipher.Block, error) {
 		return []cipher.Block{
 			&testCipher{
 				blockSize: func() int {
@@ -149,7 +157,7 @@ func TestCookieTool_Decode(t *testing.T) {
 		raw := base64.RawStdEncoding.EncodeToString([]byte("bad_hash_value"))
 		ct = CookieTool{AESKeys: aeskeys}
 		T.ExpectErrorMessage(
-			ct.Decode(raw, struct{}{}),
+			ct.Decode(context.Background(), raw, struct{}{}),
 			"Cookie was not valid.")
 		T.Equal(bsCalled, true)
 		T.Equal(decryptCalls, len("bad_hash_value"))
@@ -169,7 +177,7 @@ func TestCookieTool_Decode(t *testing.T) {
 	raw := base64.RawStdEncoding.EncodeToString(source)
 	ct = CookieTool{AESKeys: aeskeys}
 	T.ExpectErrorMessage(
-		ct.Decode(raw, struct{}{}),
+		ct.Decode(context.Background(), raw, struct{}{}),
 		"Cookie was not valid.")
 	T.Equal(bsCalled, true)
 	T.Equal(decryptCalls, len(source))
@@ -193,7 +201,7 @@ func TestCookieTool_Decode(t *testing.T) {
 	raw = base64.RawStdEncoding.EncodeToString(source)
 	ct = CookieTool{AESKeys: aeskeys}
 	T.ExpectErrorMessage(
-		ct.Decode(raw, struct{}{}),
+		ct.Decode(context.Background(), raw, struct{}{}),
 		"Cookie was not valid.")
 	T.Equal(bsCalled, true)
 	T.Equal(decryptCalls, len(source))

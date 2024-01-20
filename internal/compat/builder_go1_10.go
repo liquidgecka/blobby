@@ -1,3 +1,4 @@
+//go:build go1.10
 // +build go1.10
 
 // Implements and wraps functionality that was added in later releases

@@ -1,6 +1,7 @@
 package secretloader
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"strings"
@@ -12,20 +13,20 @@ type Loader interface {
 	CacheDuration() time.Duration
 
 	// Fetches the secret from the underlying store.
-	Fetch() ([]byte, error)
+	Fetch(context.Context) ([]byte, error)
 
 	// Returns true if the data in the secret is stale and needs to be
 	// refreshed before the next use.
-	IsStale() bool
+	IsStale(context.Context) bool
 
 	// True if the data should be preloaded on startup.
-	PreLoad() bool
+	PreLoad(context.Context) bool
 
 	// True if the data is allowed to be stale.
-	Stale() bool
+	Stale(context.Context) bool
 
 	// A string representing the URL that was used to load this secret.
-	URL() string
+	URL(context.Context) string
 }
 
 func NewLoader(u string, p Profiles) (Loader, error) {

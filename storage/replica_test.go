@@ -2,9 +2,11 @@ package storage
 
 import (
 	"compress/gzip"
+	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,7 +16,6 @@ import (
 	"github.com/liquidgecka/testlib"
 
 	"github.com/liquidgecka/blobby/internal/delayqueue"
-	"github.com/liquidgecka/blobby/internal/logging"
 	"github.com/liquidgecka/blobby/internal/workqueue"
 	"github.com/liquidgecka/blobby/storage/fid"
 )
@@ -37,7 +38,7 @@ func TestReplica_Compress(t *testing.T) {
 	setStateRun := 0
 	defer monkey.Patch(
 		(*replica).setState,
-		func(r *replica, n int32) {
+		func(r *replica, ctx context.Context, n int32) {
 			switch setStateRun {
 			case 0:
 				T.Equal(n, replicaStateCompressing)
@@ -49,7 +50,7 @@ func TestReplica_Compress(t *testing.T) {
 			setStateRun += 1
 		},
 	).Unpatch()
-	r.Compress()
+	r.Compress(context.Background())
 	T.Equal(setStateRun, 2)
 
 	// Check that the zip file contains the proper contents for the file
@@ -79,7 +80,7 @@ func TestReplica_Compress_CopyBufferFails(t *testing.T) {
 	setStateRun := 0
 	defer monkey.Patch(
 		(*replica).setState,
-		func(r *replica, n int32) {
+		func(r *replica, ctx context.Context, n int32) {
 			switch setStateRun {
 			case 0:
 				T.Equal(n, replicaStateCompressing)
@@ -97,7 +98,7 @@ func TestReplica_Compress_CopyBufferFails(t *testing.T) {
 			return 0, fmt.Errorf("EXPECTED")
 		},
 	).Unpatch()
-	r.Compress()
+	r.Compress(context.Background())
 	T.Equal(setStateRun, 2)
 }
 
@@ -116,7 +117,7 @@ func TestReplica_Compress_CreateGZFails(t *testing.T) {
 	setStateRun := 0
 	defer monkey.Patch(
 		(*replica).setState,
-		func(r *replica, n int32) {
+		func(r *replica, ctx context.Context, n int32) {
 			switch setStateRun {
 			case 0:
 				T.Equal(n, replicaStateCompressing)
@@ -128,7 +129,7 @@ func TestReplica_Compress_CreateGZFails(t *testing.T) {
 			setStateRun += 1
 		},
 	).Unpatch()
-	r.Compress()
+	r.Compress(context.Background())
 	T.Equal(setStateRun, 2)
 }
 
@@ -142,7 +143,7 @@ func TestReplica_Compress_EmptyFile(t *testing.T) {
 	setStateRun := 0
 	defer monkey.Patch(
 		(*replica).setState,
-		func(r *replica, n int32) {
+		func(r *replica, ctx context.Context, n int32) {
 			switch setStateRun {
 			case 0:
 				T.Equal(n, replicaStatePendingDelete)
@@ -152,7 +153,7 @@ func TestReplica_Compress_EmptyFile(t *testing.T) {
 			setStateRun += 1
 		},
 	).Unpatch()
-	r.Compress()
+	r.Compress(context.Background())
 	T.Equal(setStateRun, 1)
 }
 
@@ -173,7 +174,7 @@ func TestReplica_Compress_NewGzipWriterFails(t *testing.T) {
 	setStateRun := 0
 	defer monkey.Patch(
 		(*replica).setState,
-		func(r *replica, n int32) {
+		func(r *replica, ctx context.Context, n int32) {
 			switch setStateRun {
 			case 0:
 				T.Equal(n, replicaStateCompressing)
@@ -185,7 +186,7 @@ func TestReplica_Compress_NewGzipWriterFails(t *testing.T) {
 	).Unpatch()
 	T.ExpectPanic(
 		func() {
-			r.Compress()
+			r.Compress(context.Background())
 		},
 		fmt.Errorf("gzip: invalid compression level: -10000"))
 	T.Equal(setStateRun, 1)
@@ -207,7 +208,7 @@ func TestReplica_Compress_ZipperCloseFails(t *testing.T) {
 	setStateRun := 0
 	defer monkey.Patch(
 		(*replica).setState,
-		func(r *replica, n int32) {
+		func(r *replica, ctx context.Context, n int32) {
 			switch setStateRun {
 			case 0:
 				T.Equal(n, replicaStateCompressing)
@@ -225,7 +226,7 @@ func TestReplica_Compress_ZipperCloseFails(t *testing.T) {
 			return fmt.Errorf("EXPECTED")
 		},
 	).Unpatch()
-	r.Compress()
+	r.Compress(context.Background())
 	T.Equal(setStateRun, 2)
 }
 
@@ -245,13 +246,13 @@ func TestReplica_HeartBeat(t *testing.T) {
 
 	// First pass sets the timer up.
 	now := time.Now()
-	r.HeartBeat()
+	r.HeartBeat(context.Background())
 	T.Equal(r.heartBeatToken.InList(), true)
 	T.Equal(r.heartBeatLast.After(now), true)
 
 	// A second pass should change the timer as well.
 	now = time.Now()
-	r.HeartBeat()
+	r.HeartBeat(context.Background())
 	T.Equal(r.heartBeatToken.InList(), true)
 	T.Equal(r.heartBeatLast.After(now), true)
 }
@@ -272,7 +273,7 @@ func TestReplica_Compress_SeekFails(t *testing.T) {
 	setStateRun := 0
 	defer monkey.Patch(
 		(*replica).setState,
-		func(r *replica, n int32) {
+		func(r *replica, ctx context.Context, n int32) {
 			switch setStateRun {
 			case 0:
 				T.Equal(n, replicaStateCompressing)
@@ -290,7 +291,7 @@ func TestReplica_Compress_SeekFails(t *testing.T) {
 			return 0, fmt.Errorf("EXPECTED")
 		},
 	).Unpatch()
-	r.Compress()
+	r.Compress(context.Background())
 	T.Equal(setStateRun, 2)
 }
 
@@ -304,7 +305,7 @@ func TestReplica_Open(t *testing.T) {
 	setStateRun := 0
 	defer monkey.Patch(
 		(*replica).setState,
-		func(r *replica, n int32) {
+		func(r *replica, ctx context.Context, n int32) {
 			switch setStateRun {
 			case 0:
 				T.Equal(n, replicaStateOpening)
@@ -321,7 +322,7 @@ func TestReplica_Open(t *testing.T) {
 	// so that it doesn't attempt to call anything in the background.
 	defer monkey.Patch(
 		(*delayqueue.DelayQueue).Alter,
-		func(*delayqueue.DelayQueue, *delayqueue.Token, time.Time, func()) {},
+		func(*delayqueue.DelayQueue, *delayqueue.Token, time.Time, func(context.Context)) {},
 	).Unpatch()
 
 	// Setup a replica and call open on it.
@@ -335,7 +336,7 @@ func TestReplica_Open(t *testing.T) {
 	}
 	r.settings.DelayQueue.Start()
 	defer r.settings.DelayQueue.Stop()
-	T.ExpectSuccess(r.Open())
+	T.ExpectSuccess(r.Open(context.Background()))
 	T.NotEqual(r.fd, nil)
 	defer r.fd.Close()
 
@@ -354,7 +355,7 @@ func TestReplica_Open_Fails(t *testing.T) {
 	setStateRun := 0
 	defer monkey.Patch(
 		(*replica).setState,
-		func(r *replica, n int32) {
+		func(r *replica, ctx context.Context, n int32) {
 			switch setStateRun {
 			case 0:
 				T.Equal(n, replicaStateOpening)
@@ -379,7 +380,7 @@ func TestReplica_Open_Fails(t *testing.T) {
 	r.settings.DelayQueue.Start()
 	defer r.settings.DelayQueue.Stop()
 	T.ExpectErrorMessage(
-		r.Open(),
+		r.Open(context.Background()),
 		"open /some/path/that/doesn't/exist/r-test: no such file or directory")
 	T.Equal(r.fd, nil)
 }
@@ -393,7 +394,7 @@ func TestReplica_Replicate_WrongState(t *testing.T) {
 		log:   NewTestLogger(),
 	}
 	T.ExpectErrorMessage(
-		r.Replicate(nil),
+		r.Replicate(context.Background(), nil),
 		"Attempt to replicate to a replica that is not waiting for updates. "+
 			"The replica is in the completed state.",
 	)
@@ -418,7 +419,6 @@ func TestReplica_Upload(t *testing.T) {
 			UploadWorkQueue:      workqueue.New(0),
 		},
 	}
-	r.log.EnableDebug()
 	r.settings.DelayQueue.Start()
 	r.storage.replicas = map[string]*replica{
 		"test": &r,
@@ -427,7 +427,7 @@ func TestReplica_Upload(t *testing.T) {
 
 	// If the offset is zero then just expect to get moved to PendingDelete.
 	r.offset = 0
-	r.Upload()
+	r.Upload(context.Background())
 	T.Equal(r.state, replicaStatePendingDelete)
 
 	// Patch out the upload function since we don't actually need it for this
@@ -436,11 +436,12 @@ func TestReplica_Upload(t *testing.T) {
 	defer monkey.Patch(
 		uploadToS3,
 		func(
+			ctx context.Context,
 			fd *os.File,
 			id fid.FID,
 			key string,
 			s *Settings,
-			l *logging.Logger,
+			l *slog.Logger,
 		) bool {
 			T.NotEqual(l, nil)
 			T.Equal(s, r.settings)
@@ -457,7 +458,7 @@ func TestReplica_Upload(t *testing.T) {
 
 	// Check that a successful upload increments Total and Successes.
 	r.offset = 1
-	r.Upload()
+	r.Upload(context.Background())
 	T.Equal(r.state, replicaStatePendingDelete)
 	T.Equal(r.storage.metrics.ReplicaUploads.Total, int64(1))
 	T.Equal(r.storage.metrics.ReplicaUploads.Successes, int64(1))
@@ -465,7 +466,7 @@ func TestReplica_Upload(t *testing.T) {
 	// And a failure increments Total and Failures.
 	success = false
 	r.settings.Compress = true
-	r.Upload()
+	r.Upload(context.Background())
 	T.Equal(r.state, replicaStatePendingUpload)
 	T.Equal(r.storage.metrics.ReplicaUploads.Total, int64(2))
 	T.Equal(r.storage.metrics.ReplicaUploads.Successes, int64(1))
@@ -487,7 +488,6 @@ func TestReplica_Event(t *testing.T) {
 			UploadWorkQueue:      workqueue.New(0),
 		},
 	}
-	r.log.EnableDebug()
 	r.settings.DelayQueue.Start()
 	r.storage.replicas = map[string]*replica{
 		"test": &r,
@@ -514,7 +514,7 @@ func TestReplica_Event(t *testing.T) {
 	for _, state := range ignoreStates {
 		tName := "state - " + replicaStateStrings[state]
 		r.state = state
-		r.event()
+		r.event(context.Background())
 		T.Equal(r.storage.metrics.ReplicaOrphaned, int64(0), tName)
 		T.Equal(r.state, state, tName)
 	}
@@ -523,7 +523,7 @@ func TestReplica_Event(t *testing.T) {
 	r.settings.Compress = false
 	r.offset = 1
 	r.state = replicaStateWaiting
-	r.event()
+	r.event(context.Background())
 	T.Equal(r.storage.metrics.ReplicaOrphaned, int64(1))
 	T.Equal(r.state, replicaStatePendingUpload)
 
@@ -531,14 +531,14 @@ func TestReplica_Event(t *testing.T) {
 	r.settings.Compress = true
 	r.offset = 1
 	r.state = replicaStateWaiting
-	r.event()
+	r.event(context.Background())
 	T.Equal(r.storage.metrics.ReplicaOrphaned, int64(2))
 	T.Equal(r.state, replicaStatePendingCompression)
 
 	// Offset = 0 should be moved to pendingDelete.
 	r.offset = 0
 	r.state = replicaStateWaiting
-	r.event()
+	r.event(context.Background())
 	T.Equal(r.storage.metrics.ReplicaOrphaned, int64(3))
 	T.Equal(r.state, replicaStatePendingDelete)
 }
@@ -564,7 +564,6 @@ func TestReplica_SetState(t *testing.T) {
 			UploadWorkQueue:      workqueue.New(0),
 		},
 	}
-	r.log.EnableDebug()
 	r.settings.DelayQueue.Start()
 	r.storage.replicas = map[string]*replica{
 		"test": &r,
@@ -572,8 +571,12 @@ func TestReplica_SetState(t *testing.T) {
 	defer r.settings.DelayQueue.Stop()
 
 	// replicaStateNew
-	r.settings.DelayQueue.Alter(&r.heartBeatToken, future, func() {})
-	r.setState(replicaStateNew)
+	r.settings.DelayQueue.Alter(
+		&r.heartBeatToken,
+		future,
+		func(context.Context) {},
+	)
+	r.setState(context.Background(), replicaStateNew)
 	T.Equal(r.state, replicaStateNew)
 	T.Equal(r.queuedForUpload, time.Time{})
 	T.Equal(r.heartBeatToken.InList(), false)
@@ -583,8 +586,12 @@ func TestReplica_SetState(t *testing.T) {
 	T.Equal(len(r.storage.replicas), 1)
 
 	// replicaStateOpening
-	r.settings.DelayQueue.Alter(&r.heartBeatToken, future, func() {})
-	r.setState(replicaStateOpening)
+	r.settings.DelayQueue.Alter(
+		&r.heartBeatToken,
+		future,
+		func(context.Context) {},
+	)
+	r.setState(context.Background(), replicaStateOpening)
 	T.Equal(r.state, replicaStateOpening)
 	T.Equal(r.queuedForUpload, time.Time{})
 	T.Equal(r.heartBeatToken.InList(), false)
@@ -594,8 +601,12 @@ func TestReplica_SetState(t *testing.T) {
 	T.Equal(len(r.storage.replicas), 1)
 
 	// replicaStateWaiting
-	r.settings.DelayQueue.Alter(&r.heartBeatToken, future, func() {})
-	r.setState(replicaStateWaiting)
+	r.settings.DelayQueue.Alter(
+		&r.heartBeatToken,
+		future,
+		func(context.Context) {},
+	)
+	r.setState(context.Background(), replicaStateWaiting)
 	T.Equal(r.state, replicaStateWaiting)
 	T.Equal(r.queuedForUpload, time.Time{})
 	T.Equal(r.heartBeatToken.InList(), true)
@@ -605,8 +616,12 @@ func TestReplica_SetState(t *testing.T) {
 	T.Equal(len(r.storage.replicas), 1)
 
 	// replicaStateAppending
-	r.settings.DelayQueue.Alter(&r.heartBeatToken, future, func() {})
-	r.setState(replicaStateAppending)
+	r.settings.DelayQueue.Alter(
+		&r.heartBeatToken,
+		future,
+		func(context.Context) {},
+	)
+	r.setState(context.Background(), replicaStateAppending)
 	T.Equal(r.state, replicaStateAppending)
 	T.Equal(r.queuedForUpload, time.Time{})
 	T.Equal(r.heartBeatToken.InList(), true)
@@ -616,8 +631,12 @@ func TestReplica_SetState(t *testing.T) {
 	T.Equal(len(r.storage.replicas), 1)
 
 	// replicaStateFailed
-	r.settings.DelayQueue.Alter(&r.heartBeatToken, future, func() {})
-	r.setState(replicaStateFailed)
+	r.settings.DelayQueue.Alter(
+		&r.heartBeatToken,
+		future,
+		func(context.Context) {},
+	)
+	r.setState(context.Background(), replicaStateFailed)
 	T.Equal(r.state, replicaStateFailed)
 	T.Equal(r.queuedForUpload, time.Time{})
 	T.Equal(r.heartBeatToken.InList(), true)
@@ -627,8 +646,12 @@ func TestReplica_SetState(t *testing.T) {
 	T.Equal(len(r.storage.replicas), 1)
 
 	// replicaStatePendingCompression
-	r.settings.DelayQueue.Alter(&r.heartBeatToken, future, func() {})
-	r.setState(replicaStatePendingCompression)
+	r.settings.DelayQueue.Alter(
+		&r.heartBeatToken,
+		future,
+		func(context.Context) {},
+	)
+	r.setState(context.Background(), replicaStatePendingCompression)
 	T.Equal(r.state, replicaStatePendingCompression)
 	T.Equal(r.queuedForUpload, time.Time{})
 	T.Equal(r.heartBeatToken.InList(), false)
@@ -638,8 +661,12 @@ func TestReplica_SetState(t *testing.T) {
 	T.Equal(len(r.storage.replicas), 1)
 
 	// replicaStateCompressing
-	r.settings.DelayQueue.Alter(&r.heartBeatToken, future, func() {})
-	r.setState(replicaStateCompressing)
+	r.settings.DelayQueue.Alter(
+		&r.heartBeatToken,
+		future,
+		func(context.Context) {},
+	)
+	r.setState(context.Background(), replicaStateCompressing)
 	T.Equal(r.state, replicaStateCompressing)
 	T.Equal(r.queuedForUpload, time.Time{})
 	T.Equal(r.heartBeatToken.InList(), false)
@@ -649,8 +676,12 @@ func TestReplica_SetState(t *testing.T) {
 	T.Equal(len(r.storage.replicas), 1)
 
 	// replicaStatePendingUpload
-	r.settings.DelayQueue.Alter(&r.heartBeatToken, future, func() {})
-	r.setState(replicaStatePendingUpload)
+	r.settings.DelayQueue.Alter(
+		&r.heartBeatToken,
+		future,
+		func(context.Context) {},
+	)
+	r.setState(context.Background(), replicaStatePendingUpload)
 	T.Equal(r.state, replicaStatePendingUpload)
 	T.NotEqual(r.queuedForUpload, time.Time{})
 	T.Equal(start.Before(r.queuedForUpload), true)
@@ -661,8 +692,12 @@ func TestReplica_SetState(t *testing.T) {
 	T.Equal(len(r.storage.replicas), 1)
 
 	// replicaStateUploading
-	r.settings.DelayQueue.Alter(&r.heartBeatToken, future, func() {})
-	r.setState(replicaStateUploading)
+	r.settings.DelayQueue.Alter(
+		&r.heartBeatToken,
+		future,
+		func(context.Context) {},
+	)
+	r.setState(context.Background(), replicaStateUploading)
 	T.Equal(r.state, replicaStateUploading)
 	T.NotEqual(r.queuedForUpload, time.Time{})
 	T.Equal(start.Before(r.queuedForUpload), true)
@@ -673,8 +708,12 @@ func TestReplica_SetState(t *testing.T) {
 	T.Equal(len(r.storage.replicas), 1)
 
 	// replicaStatePendingDelete
-	r.settings.DelayQueue.Alter(&r.heartBeatToken, future, func() {})
-	r.setState(replicaStatePendingDelete)
+	r.settings.DelayQueue.Alter(
+		&r.heartBeatToken,
+		future,
+		func(context.Context) {},
+	)
+	r.setState(context.Background(), replicaStatePendingDelete)
 	T.Equal(r.state, replicaStatePendingDelete)
 	T.Equal(r.queuedForUpload, time.Time{})
 	T.Equal(r.heartBeatToken.InList(), false)
@@ -684,8 +723,12 @@ func TestReplica_SetState(t *testing.T) {
 	T.Equal(len(r.storage.replicas), 1)
 
 	// replicaStateDeletingCompressed
-	r.settings.DelayQueue.Alter(&r.heartBeatToken, future, func() {})
-	r.setState(replicaStateDeletingCompressed)
+	r.settings.DelayQueue.Alter(
+		&r.heartBeatToken,
+		future,
+		func(context.Context) {},
+	)
+	r.setState(context.Background(), replicaStateDeletingCompressed)
 	T.Equal(r.state, replicaStateDeletingCompressed)
 	T.Equal(r.queuedForUpload, time.Time{})
 	T.Equal(r.heartBeatToken.InList(), false)
@@ -695,8 +738,12 @@ func TestReplica_SetState(t *testing.T) {
 	T.Equal(len(r.storage.replicas), 1)
 
 	// replicaStateClosingCompressed
-	r.settings.DelayQueue.Alter(&r.heartBeatToken, future, func() {})
-	r.setState(replicaStateClosingCompressed)
+	r.settings.DelayQueue.Alter(
+		&r.heartBeatToken,
+		future,
+		func(context.Context) {},
+	)
+	r.setState(context.Background(), replicaStateClosingCompressed)
 	T.Equal(r.state, replicaStateClosingCompressed)
 	T.Equal(r.queuedForUpload, time.Time{})
 	T.Equal(r.heartBeatToken.InList(), false)
@@ -706,8 +753,12 @@ func TestReplica_SetState(t *testing.T) {
 	T.Equal(len(r.storage.replicas), 1)
 
 	// replicaStateDeleting
-	r.settings.DelayQueue.Alter(&r.heartBeatToken, future, func() {})
-	r.setState(replicaStateDeleting)
+	r.settings.DelayQueue.Alter(
+		&r.heartBeatToken,
+		future,
+		func(context.Context) {},
+	)
+	r.setState(context.Background(), replicaStateDeleting)
 	T.Equal(r.state, replicaStateDeleting)
 	T.Equal(r.queuedForUpload, time.Time{})
 	T.Equal(r.heartBeatToken.InList(), false)
@@ -717,8 +768,12 @@ func TestReplica_SetState(t *testing.T) {
 	T.Equal(len(r.storage.replicas), 1)
 
 	// replicaStateClosing
-	r.settings.DelayQueue.Alter(&r.heartBeatToken, future, func() {})
-	r.setState(replicaStateClosing)
+	r.settings.DelayQueue.Alter(
+		&r.heartBeatToken,
+		future,
+		func(context.Context) {},
+	)
+	r.setState(context.Background(), replicaStateClosing)
 	T.Equal(r.state, replicaStateClosing)
 	T.Equal(r.queuedForUpload, time.Time{})
 	T.Equal(r.heartBeatToken.InList(), false)
@@ -728,8 +783,12 @@ func TestReplica_SetState(t *testing.T) {
 	T.Equal(len(r.storage.replicas), 1)
 
 	// replicaStateCompleted
-	r.settings.DelayQueue.Alter(&r.heartBeatToken, future, func() {})
-	r.setState(replicaStateCompleted)
+	r.settings.DelayQueue.Alter(
+		&r.heartBeatToken,
+		future,
+		func(context.Context) {},
+	)
+	r.setState(context.Background(), replicaStateCompleted)
 	T.Equal(r.state, replicaStateCompleted)
 	T.Equal(r.queuedForUpload, time.Time{})
 	T.Equal(r.heartBeatToken.InList(), false)

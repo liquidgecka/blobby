@@ -2,8 +2,10 @@ package storage
 
 import (
 	"compress/gzip"
+	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -14,7 +16,7 @@ import (
 	"github.com/liquidgecka/blobby/internal/compat"
 	"github.com/liquidgecka/blobby/internal/delayqueue"
 	"github.com/liquidgecka/blobby/internal/human"
-	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/internal/sloghelper"
 	"github.com/liquidgecka/blobby/storage/fid"
 	"github.com/liquidgecka/blobby/storage/hasher"
 )
@@ -100,12 +102,12 @@ type replica struct {
 	heartBeatToken delayqueue.Token
 
 	// All logging will be routed through this logger.
-	log *logging.Logger
+	log *slog.Logger
 }
 
 // Called to initiate the compression state. This should compress the file
 // locally so it can be uploaded to S3.
-func (r *replica) Compress() {
+func (r *replica) Compress(ctx context.Context) {
 	// Obtain the lock.
 	r.lock.Lock()
 	defer r.lock.Unlock()
@@ -113,12 +115,12 @@ func (r *replica) Compress() {
 	// Don't bother compressing a file with zero content.
 	if r.offset == 0 {
 		r.log.Debug("Skipping compression, the file has no content.")
-		r.setState(replicaStatePendingDelete)
+		r.setState(ctx, replicaStatePendingDelete)
 		return
 	}
 
 	// Set the state.
-	r.setState(replicaStateCompressing)
+	r.setState(ctx, replicaStateCompressing)
 	r.log.Debug("Compressing the file.")
 
 	// Open the file that will store the compressed data long term.
@@ -129,21 +131,25 @@ func (r *replica) Compress() {
 	if r.compressFd, err = os.OpenFile(fpath, flags, mode); err != nil {
 		// Log the error and then set the state to complete since the
 		// file was not able to be opened on disk.
-		r.log.Error(
+		r.log.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"Error opening compressed file",
-			logging.NewField("file", fpath),
-			logging.NewFieldIface("error", err))
-		r.setState(replicaStatePendingCompression)
+			sloghelper.String("file", fpath),
+			sloghelper.Error("error", err))
+		r.setState(ctx, replicaStatePendingCompression)
 		return
 	}
 
 	// Seek back to the very start of the data file.
 	if _, err = r.fd.Seek(0, io.SeekStart); err != nil {
-		r.log.Error(
+		r.log.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"Error seeking in the data file.",
-			logging.NewField("file", r.fd.Name()),
-			logging.NewFieldIface("error", err))
-		r.setState(replicaStatePendingCompression)
+			sloghelper.String("file", r.fd.Name()),
+			sloghelper.Error("error", err))
+		r.setState(ctx, replicaStatePendingCompression)
 		return
 	}
 
@@ -157,56 +163,62 @@ func (r *replica) Compress() {
 	// Copy data from the source file into the gzipper.
 	buffer := [4096]byte{}
 	if _, err = io.CopyBuffer(zipper, r.fd, buffer[:]); err != nil {
-		r.log.Error(
+		r.log.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"Error generating the compressed data file.",
-			logging.NewField("source-file", r.fd.Name()),
-			logging.NewField("dest-file", r.compressFd.Name()),
-			logging.NewFieldIface("error", err))
-		r.setState(replicaStatePendingCompression)
+			sloghelper.String("source-file", r.fd.Name()),
+			sloghelper.String("dest-file", r.compressFd.Name()),
+			sloghelper.Error("error", err))
+		r.setState(ctx, replicaStatePendingCompression)
 		return
 	}
 
 	// Close out the gzip routine.
 	if err = zipper.Close(); err != nil {
-		r.log.Error(
+		r.log.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"Error closing the compressed file.",
-			logging.NewField("file", r.compressFd.Name()),
-			logging.NewFieldIface("error", err))
-		r.setState(replicaStatePendingCompression)
+			sloghelper.String("file", r.compressFd.Name()),
+			sloghelper.Error("error", err))
+		r.setState(ctx, replicaStatePendingCompression)
 		return
 	}
 
 	// Success.
 	r.log.Info("Successfully compressed the data file.")
-	r.setState(replicaStatePendingUpload)
+	r.setState(ctx, replicaStatePendingUpload)
 }
 
 // Called by the Deletable interface in order to perform the background
 // deletion tasks.
-func (r *replica) Delete() {
+func (r *replica) Delete(ctx context.Context) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
 	// Metrics
 	r.storage.metrics.ReplicaDeletes.IncTotal()
-	r.setState(replicaStateClosing)
+	r.setState(ctx, replicaStateClosing)
 
 	// If defined then we need to remove and close the compressed file that
 	// was generated prior to uploading.
 	if r.compressFd != nil {
 		// Remove the file.
-		r.setState(replicaStateDeleting)
+		r.setState(ctx, replicaStateDeleting)
 		r.storage.metrics.FilesDeleted.IncTotal()
 		err := os.Remove(r.compressFd.Name())
 		if err != nil && !os.IsNotExist(err) {
 			// Error removing the file, not much we can do beside logging it
 			// and retrying.
-			r.log.Error(
+			r.log.LogAttrs(
+				ctx,
+				slog.LevelError,
 				"There was an error removing the temporary compressed file.",
-				logging.NewField("file", r.fd.Name()),
-				logging.NewFieldIface("error", err))
+				sloghelper.String("file", r.fd.Name()),
+				sloghelper.Error("error", err))
 			r.storage.metrics.FilesDeleted.IncFailures()
-			r.setState(replicaStatePendingDelete)
+			r.setState(ctx, replicaStatePendingDelete)
 		} else {
 			// Success
 			r.storage.metrics.FilesDeleted.IncSuccesses()
@@ -214,13 +226,15 @@ func (r *replica) Delete() {
 		}
 
 		// Close the file descriptor.
-		r.setState(replicaStateClosing)
+		r.setState(ctx, replicaStateClosing)
 		if err := r.compressFd.Close(); err != nil {
 			// Not much we can do here besides log.
-			r.log.Warning(
+			r.log.LogAttrs(
+				ctx,
+				slog.LevelWarn,
 				"Unable to close the temporary compressed file!",
-				logging.NewField("file", r.compressFd.Name()),
-				logging.NewFieldIface("error", err))
+				sloghelper.String("file", r.compressFd.Name()),
+				sloghelper.Error("error", err))
 		}
 		r.compressFd = nil
 	}
@@ -228,17 +242,19 @@ func (r *replica) Delete() {
 	// Remove and close the primary data file.
 	if r.fd != nil {
 		// Remove the file.
-		r.setState(replicaStateDeleting)
+		r.setState(ctx, replicaStateDeleting)
 		r.storage.metrics.FilesDeleted.IncTotal()
 		if err := os.Remove(r.fd.Name()); err != nil && !os.IsNotExist(err) {
 			// Error removing the file, not much we can do beside logging it
 			// and retrying.
-			r.log.Error(
+			r.log.LogAttrs(
+				ctx,
+				slog.LevelError,
 				"There was an error removing the file.",
-				logging.NewField("file", r.fd.Name()),
-				logging.NewFieldIface("error", err))
+				sloghelper.String("file", r.fd.Name()),
+				sloghelper.Error("error", err))
 			r.storage.metrics.FilesDeleted.IncFailures()
-			r.setState(replicaStatePendingDelete)
+			r.setState(ctx, replicaStatePendingDelete)
 		} else {
 			// Success
 			r.storage.metrics.FilesDeleted.IncSuccesses()
@@ -246,29 +262,34 @@ func (r *replica) Delete() {
 		}
 
 		// Close the file descriptor.
-		r.setState(replicaStateClosing)
+		r.setState(ctx, replicaStateClosing)
 		if err := r.fd.Close(); err != nil {
 			// Not much we can do here besides log.
-			r.log.Warning(
+			r.log.LogAttrs(
+				ctx,
+				slog.LevelWarn,
 				"Unable to close the file!",
-				logging.NewField("file", r.fd.Name()),
-				logging.NewFieldIface("error", err))
+				sloghelper.String("file", r.fd.Name()),
+				sloghelper.Error("error", err))
 		}
 		r.fd = nil
 	}
 
 	// Everything is done.
-	r.setState(replicaStateCompleted)
+	r.setState(ctx, replicaStateCompleted)
 }
 
 // Called to indicate that the primary has performed a heart beat
 // call against the replica. If the replica is in the right state
 // then this return nil, otherwise this will return an error
 // explaining the problem.
-func (r *replica) HeartBeat() error {
+func (r *replica) HeartBeat(ctx context.Context) error {
 	r.heartBeatLock.Lock()
 	defer r.heartBeatLock.Unlock()
-	r.log.Debug("Heart beat received.")
+	r.log.LogAttrs(
+		ctx,
+		slog.LevelDebug,
+		"Heart beat received.")
 	// When sending heart beats to the replica we accept them only if the
 	// replica is actually in a state where it will be able to accept
 	// updates otherwise it will return an error so that the primary
@@ -291,9 +312,9 @@ func (r *replica) HeartBeat() error {
 }
 
 // Opens the file on disk for use as a Replica.
-func (r *replica) Open() error {
+func (r *replica) Open(ctx context.Context) error {
 	// Set the state before doing anything.
-	r.setState(replicaStateOpening)
+	r.setState(ctx, replicaStateOpening)
 
 	// Open the actual file on disk.
 	fpath := filepath.Join(r.settings.BaseDirectory, "r-"+r.fidStr)
@@ -302,10 +323,12 @@ func (r *replica) Open() error {
 	var err error
 	r.log.Debug("Opening file")
 	if r.fd, err = os.OpenFile(fpath, flags, mode); err != nil {
-		r.log.Error(
+		r.log.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"Error opening file",
-			logging.NewFieldIface("error", err))
-		r.setState(replicaStateCompleted)
+			sloghelper.Error("error", err))
+		r.setState(ctx, replicaStateCompleted)
 		return err
 	}
 
@@ -320,7 +343,7 @@ func (r *replica) Open() error {
 
 	// Set the replica state to Waiting which should automatically
 	// initialize the heart beat timer as well.
-	r.setState(replicaStateWaiting)
+	r.setState(ctx, replicaStateWaiting)
 	r.log.Debug("New replica opened.")
 
 	// Success!
@@ -328,7 +351,10 @@ func (r *replica) Open() error {
 }
 
 // Allows data to be replicated into a replica file.
-func (r *replica) Replicate(rc RemoteReplicateConfig) error {
+func (r *replica) Replicate(
+	ctx context.Context,
+	rc RemoteReplicateConfig,
+) error {
 	// Lock to ensure that we only process one operation at a time
 	// in this replica.
 	r.lock.Lock()
@@ -337,9 +363,11 @@ func (r *replica) Replicate(rc RemoteReplicateConfig) error {
 	// If the replica is not in the waiting state then we can not
 	// progress forward.
 	if r.state != replicaStateWaiting {
-		r.log.Warning(
+		r.log.LogAttrs(
+			ctx,
+			slog.LevelWarn,
 			"Attempt to replicate to a replica not in a waiting state.",
-			logging.NewField("state", replicaStateStrings[r.state]))
+			sloghelper.String("state", replicaStateStrings[r.state]))
 		return fmt.Errorf(""+
 			"Attempt to replicate to a replica that is not waiting "+
 			"for updates. The replica is in the %s state.",
@@ -347,7 +375,7 @@ func (r *replica) Replicate(rc RemoteReplicateConfig) error {
 	}
 
 	// Set the state to appending.
-	r.setState(replicaStateAppending)
+	r.setState(ctx, replicaStateAppending)
 
 	// Check that the offset is actually correct so that we don't append
 	// the data in the wrong place.
@@ -355,17 +383,17 @@ func (r *replica) Replicate(rc RemoteReplicateConfig) error {
 		// The requested offset does not match the current offset for
 		// this file. This often means that the file has fallen behind
 		// and needs to be marked as failed.
-		if r.log.DebugEnabled() {
+		if r.log.Enabled(ctx, slog.LevelDebug) {
 			r.log.Debug(
 				"Attempt to replicate to the wrong offset in a replica.",
-				logging.NewField(
+				sloghelper.String(
 					"current-offset",
 					strconv.FormatUint(r.offset, 10)),
-				logging.NewField(
+				sloghelper.String(
 					"request-offset",
 					strconv.FormatUint(rcOffset, 10)))
 		}
-		r.setState(replicaStateFailed)
+		r.setState(ctx, replicaStateFailed)
 		return fmt.Errorf(""+
 			"Attempt to replicate to a replica where the offsets do not "+
 			"match. This is a synchronization error. (%d != %d)",
@@ -378,32 +406,38 @@ func (r *replica) Replicate(rc RemoteReplicateConfig) error {
 	// upload.
 	hsum, err := hasher.Validator(rc.Hash(), r.fd)
 	if err != nil {
-		r.log.Error(
+		r.log.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"Error parsing client provided hash string.",
-			logging.NewField("hash-str", rc.Hash()),
-			logging.NewFieldIface("error", err))
-		r.setState(replicaStateFailed)
+			sloghelper.String("hash-str", rc.Hash()),
+			sloghelper.Error("error", err))
+		r.setState(ctx, replicaStateFailed)
 		return err
 	}
 
 	// Copy the data into the file.
 	buffer := [32 * 1024]byte{}
 	if n, err := io.CopyBuffer(hsum, rc.GetBody(), buffer[:]); err != nil {
-		r.log.Error(
+		r.log.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"Error copying data to the replica.",
-			logging.NewFieldIface("error", err))
-		r.setState(replicaStateFailed)
+			sloghelper.Error("error", err))
+		r.setState(ctx, replicaStateFailed)
 		return fmt.Errorf("Error writing to replica: %s", err.Error())
 	} else if size := rc.Size(); size != uint64(n) {
-		r.log.Error(
+		r.log.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"Short write while copying data to the replica.",
-			logging.NewField(
+			sloghelper.String(
 				"expected-length",
 				strconv.FormatUint(size, 10)),
-			logging.NewField(
+			sloghelper.String(
 				"written-length",
 				strconv.FormatInt(n, 10)))
-		r.setState(replicaStateFailed)
+		r.setState(ctx, replicaStateFailed)
 		return fmt.Errorf(""+
 			"Insufficient bytes received when writing data, "+
 			"expected %d, but wrote %d",
@@ -411,11 +445,13 @@ func (r *replica) Replicate(rc RemoteReplicateConfig) error {
 			n)
 	} else if !hsum.Check() {
 		// Data was written to disk but the resulting hash was not correct.
-		r.log.Error(
+		r.log.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"Received data did not match the expected checksum.",
-			logging.NewField("expected-hash", rc.Hash()),
-			logging.NewField("received-hash", hsum.Hash()))
-		r.setState(replicaStateFailed)
+			sloghelper.String("expected-hash", rc.Hash()),
+			sloghelper.String("received-hash", hsum.Hash()))
+		r.setState(ctx, replicaStateFailed)
 		return fmt.Errorf(""+
 			"The hash of the data written to disk (%s) does not match "+
 			"the one we expected. (%s)",
@@ -432,7 +468,7 @@ func (r *replica) Replicate(rc RemoteReplicateConfig) error {
 		r.event)
 
 	// Put the file back in the Waiting state.
-	r.setState(replicaStateWaiting)
+	r.setState(ctx, replicaStateWaiting)
 
 	// Success!
 	return nil
@@ -453,7 +489,7 @@ func (r *replica) Status() string {
 // Called by the http interface in order to trigger the deletion process.
 // This doesn't actually delete the file, it just gets the replica into
 // the delete queue in the storage interface.
-func (r *replica) QueueDelete() error {
+func (r *replica) QueueDelete(ctx context.Context) error {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
@@ -481,21 +517,23 @@ func (r *replica) QueueDelete() error {
 
 	// All other states should return an error.
 	default:
-		r.log.Error(
+		r.log.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"Attempting to delete a file from the wrong state.",
-			logging.NewField("current-state", replicaStateStrings[r.state]))
+			sloghelper.String("current-state", replicaStateStrings[r.state]))
 		return fmt.Errorf(
 			"Can not delete the replica, its in the wrong state: %s",
 			replicaStateStrings[r.state])
 	}
 
 	// Set the state to pending delete.
-	r.setState(replicaStatePendingDelete)
+	r.setState(ctx, replicaStatePendingDelete)
 	return nil
 }
 
 // Called to perform the upload of the underlying data in the replica.
-func (r *replica) Upload() {
+func (r *replica) Upload(ctx context.Context) {
 	// Obtain the lock.
 	r.lock.Lock()
 	defer r.lock.Unlock()
@@ -503,13 +541,13 @@ func (r *replica) Upload() {
 	// Don't bother uploading a file with zero content.
 	if r.offset == 0 {
 		r.log.Debug("Skipping compression, the file has no content.")
-		r.setState(replicaStatePendingDelete)
+		r.setState(ctx, replicaStatePendingDelete)
 		return
 	}
 
 	// Set the state
 	r.storage.metrics.ReplicaUploads.IncTotal()
-	r.setState(replicaStateUploading)
+	r.setState(ctx, replicaStateUploading)
 	r.log.Debug("Starting upload.")
 
 	// Attempt the upload.
@@ -517,13 +555,16 @@ func (r *replica) Upload() {
 	if r.settings.Compress {
 		fd = r.compressFd
 	}
-	if !uploadToS3(fd, r.fid, r.s3key, r.settings, r.log) {
-		r.log.Warning("Requeuing for upload.")
-		r.setState(replicaStatePendingUpload)
+	if !uploadToS3(ctx, fd, r.fid, r.s3key, r.settings, r.log) {
+		r.log.LogAttrs(
+			ctx,
+			slog.LevelWarn,
+			"Requeuing for upload.")
+		r.setState(ctx, replicaStatePendingUpload)
 		r.storage.metrics.ReplicaUploads.IncFailures()
 		return
 	} else {
-		r.setState(replicaStatePendingDelete)
+		r.setState(ctx, replicaStatePendingDelete)
 		r.storage.metrics.ReplicaUploads.IncSuccesses()
 	}
 }
@@ -531,7 +572,7 @@ func (r *replica) Upload() {
 // Called when the DelayQueue event is triggered. This can only really happen
 // if the primary has not properly sent a heart beat in a reasonable amount of
 // time. This gets called in a goroutine via the DelayQueue worker.
-func (r *replica) event() {
+func (r *replica) event(ctx context.Context) {
 	// Obtain the lock.
 	r.lock.Lock()
 	defer r.lock.Unlock()
@@ -551,29 +592,32 @@ func (r *replica) event() {
 	atomic.AddInt64(&r.storage.metrics.ReplicaOrphaned, 1)
 
 	// Log something so the users can track what is happening.
-	r.log.Warning("The replica has been orphaned.")
+	r.log.LogAttrs(
+		ctx,
+		slog.LevelWarn,
+		"The replica has been orphaned.")
 
 	// The replica has been orphaned. We need to either upload it if it has
 	// data, or remote if it is empty.
 	if r.offset == 0 {
 		r.log.Info("The replica is empty, no need to upload it.")
-		r.setState(replicaStatePendingDelete)
+		r.setState(ctx, replicaStatePendingDelete)
 	} else if r.settings.Compress {
-		r.setState(replicaStatePendingCompression)
+		r.setState(ctx, replicaStatePendingCompression)
 	} else {
-		r.setState(replicaStatePendingUpload)
+		r.setState(ctx, replicaStatePendingUpload)
 	}
 }
 
 // Sets the state of the replica in an atomic way.
-func (r *replica) setState(n int32) {
+func (r *replica) setState(ctx context.Context, n int32) {
 	// Change the state locally.
 	oldN := atomic.SwapInt32(&r.state, n)
-	if r.log.DebugEnabled() {
+	if r.log.Enabled(ctx, slog.LevelDebug) {
 		r.log.Debug(
 			"state changed.",
-			logging.NewField("old-state", replicaStateStrings[oldN]),
-			logging.NewField("new-state", replicaStateStrings[n]),
+			sloghelper.String("old-state", replicaStateStrings[oldN]),
+			sloghelper.String("new-state", replicaStateStrings[n]),
 		)
 	}
 

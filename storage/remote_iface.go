@@ -2,8 +2,8 @@ package storage
 
 import (
 	"io"
+	"log/slog"
 
-	"github.com/liquidgecka/blobby/internal/logging"
 	"github.com/liquidgecka/blobby/storage/fid"
 )
 
@@ -32,7 +32,7 @@ type ReadConfig interface {
 	// Returns the Logger that is associated with this Read operation. If
 	// this returns nil then a logger will be created from the BAseLogger
 	// in the Storage object.
-	Logger() *logging.Logger
+	Logger() *slog.Logger
 
 	// Since the request may need to be forwarded on to a Remote we need to
 	// allow a way for request contexts to be proxied. Since the Storage

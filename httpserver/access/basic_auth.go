@@ -28,7 +28,7 @@ func (b *BasicAuth) check(ir *request.Request) bool {
 		return false
 	} else if user, pass, ok := ir.Request.BasicAuth(); !ok {
 		return false
-	} else if ok, err := b.Users.Verify(user, pass, b.UserTags); err != nil {
+	} else if ok, err := b.Users.Verify(ir.Context, user, pass, b.UserTags); err != nil {
 		panic(err)
 	} else {
 		return ok

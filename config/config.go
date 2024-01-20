@@ -1,17 +1,19 @@
 package config
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
 
+	toml "github.com/pelletier/go-toml"
+
 	"github.com/liquidgecka/blobby/httpserver"
 	"github.com/liquidgecka/blobby/internal/delayqueue"
-	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/internal/sloghelper"
 	"github.com/liquidgecka/blobby/storage"
-
-	toml "github.com/pelletier/go-toml"
 )
 
 type Config struct {
@@ -51,9 +53,9 @@ func Parse(filename string) (*Config, error) {
 }
 
 // Initializes the logging system.
-func (c *Config) InitializeLogging() (err error) {
+func (c *Config) InitializeLogging(ctx context.Context) (err error) {
 	c.initializeOnce.Do(func() {
-		err = c.initializeLogging()
+		err = c.initializeLogging(ctx)
 	})
 	return
 }
@@ -64,9 +66,9 @@ func (c *Config) GetDelayQueue() *delayqueue.DelayQueue {
 }
 
 // Returns the top level logger that was generated during initialization.
-func (c *Config) GetLogger() *logging.Logger {
+func (c *Config) GetLogger(ctx context.Context) *slog.Logger {
 	c.initializeOnce.Do(func() {
-		if err := c.initializeLogging(); err != nil {
+		if err := c.initializeLogging(ctx); err != nil {
 			panic(err)
 		}
 	})
@@ -84,13 +86,13 @@ func (c *Config) GetPIDFile() string {
 }
 
 // Returns all log rotators created as part of the configuration.
-func (c *Config) GetRotators() []*logging.Rotator {
+func (c *Config) GetRotators(ctx context.Context) []*sloghelper.Rotator {
 	c.initializeOnce.Do(func() {
-		if err := c.initializeLogging(); err != nil {
+		if err := c.initializeLogging(ctx); err != nil {
 			panic(err)
 		}
 	})
-	r := make([]*logging.Rotator, 0, 2)
+	r := make([]*sloghelper.Rotator, 0, 2)
 	if c.top.Server.AccessLog != nil {
 		r = append(r, c.top.Server.AccessLog.rotator)
 	}
@@ -100,9 +102,9 @@ func (c *Config) GetRotators() []*logging.Rotator {
 
 // Returns a map of all namespaces mapped into the Storage structure
 // that will be serving them.
-func (c *Config) GetNameSpaces() map[string]*storage.Storage {
+func (c *Config) GetNameSpaces(ctx context.Context) map[string]*storage.Storage {
 	c.initializeOnce.Do(func() {
-		if err := c.initializeLogging(); err != nil {
+		if err := c.initializeLogging(ctx); err != nil {
 			panic(err)
 		}
 	})
@@ -110,9 +112,9 @@ func (c *Config) GetNameSpaces() map[string]*storage.Storage {
 }
 
 // Returns the httpserver.Server for this config.
-func (c *Config) GetServer() httpserver.Server {
+func (c *Config) GetServer(ctx context.Context) httpserver.Server {
 	c.initializeOnce.Do(func() {
-		if err := c.initializeLogging(); err != nil {
+		if err := c.initializeLogging(ctx); err != nil {
 			panic(err)
 		}
 	})
@@ -122,38 +124,38 @@ func (c *Config) GetServer() httpserver.Server {
 // Pre-loads all of the secrets in the configuration. If any secrets were
 // configured (certificates, passwords, aes keys, htpasswd files, etc) then
 // this will perform the initial load of those resources.
-func (c *Config) PreLoadSecrets() error {
-	if err := c.top.Server.DebugPathsACL.preLoad(); err != nil {
+func (c *Config) PreLoadSecrets(ctx context.Context) error {
+	if err := c.top.Server.DebugPathsACL.preLoad(ctx); err != nil {
 		return err
 	}
-	if err := c.top.Server.HealthCheckACL.preLoad(); err != nil {
+	if err := c.top.Server.HealthCheckACL.preLoad(ctx); err != nil {
 		return err
 	}
-	if err := c.top.Server.aesKeysLoader.PreLoad(); err != nil {
+	if err := c.top.Server.aesKeysLoader.PreLoad(ctx); err != nil {
 		return err
 	}
-	if err := c.top.Server.tlsCerts.PreLoad(); err != nil {
+	if err := c.top.Server.tlsCerts.PreLoad(ctx); err != nil {
 		return err
 	}
-	if err := c.top.Server.webUsersHTPasswd.PreLoad(); err != nil {
+	if err := c.top.Server.webUsersHTPasswd.PreLoad(ctx); err != nil {
 		return err
 	}
 	for _, ns := range c.top.NameSpace {
-		if err := ns.BlastPathACL.preLoad(); err != nil {
+		if err := ns.BlastPathACL.preLoad(ctx); err != nil {
 			return err
 		}
-		if err := ns.InsertACL.preLoad(); err != nil {
+		if err := ns.InsertACL.preLoad(ctx); err != nil {
 			return err
 		}
-		if err := ns.PrimaryACL.preLoad(); err != nil {
+		if err := ns.PrimaryACL.preLoad(ctx); err != nil {
 			return err
 		}
-		if err := ns.ReadACL.preLoad(); err != nil {
+		if err := ns.ReadACL.preLoad(ctx); err != nil {
 			return err
 		}
 	}
 	for _, saml := range c.top.SAML {
-		if err := saml.certs.PreLoad(); err != nil {
+		if err := saml.certs.PreLoad(ctx); err != nil {
 			return err
 		}
 	}
@@ -161,44 +163,42 @@ func (c *Config) PreLoadSecrets() error {
 }
 
 // If configured to do so this will setup a logger and start the secret
-// refresher goroutine. This routine will run until the given channel is
-// closed and will refresh certificates on the interval configured.
-func (c *Config) StartSecretRefreshers() chan<- struct{} {
+// refresher goroutine. This routine will run until the given context
+// is canceled.
+func (c *Config) StartSecretRefreshers(ctx context.Context) {
 	c.initializeOnce.Do(func() {
-		if err := c.initializeLogging(); err != nil {
+		if err := c.initializeLogging(ctx); err != nil {
 			panic(err)
 		}
 	})
-	stop := make(chan struct{})
 	if c.top.Server.tlsCerts != nil {
-		c.top.Server.tlsCerts.StartRefresher(stop)
+		c.top.Server.tlsCerts.StartRefresher(ctx)
 	}
 	if c.top.Server.aesKeysLoader != nil {
-		c.top.Server.aesKeysLoader.StartRefresher(stop)
+		c.top.Server.aesKeysLoader.StartRefresher(ctx)
 	}
-	c.top.Server.DebugPathsACL.startRefresher(stop)
-	c.top.Server.HealthCheckACL.startRefresher(stop)
+	c.top.Server.DebugPathsACL.startRefresher(ctx)
+	c.top.Server.HealthCheckACL.startRefresher(ctx)
 	if c.top.Server.webUsersHTPasswd != nil {
-		c.top.Server.webUsersHTPasswd.StartRefresher(stop)
+		c.top.Server.webUsersHTPasswd.StartRefresher(ctx)
 	}
 	for _, ns := range c.top.NameSpace {
-		ns.BlastPathACL.startRefresher(stop)
-		ns.InsertACL.startRefresher(stop)
-		ns.PrimaryACL.startRefresher(stop)
-		ns.ReadACL.startRefresher(stop)
+		ns.BlastPathACL.startRefresher(ctx)
+		ns.InsertACL.startRefresher(ctx)
+		ns.PrimaryACL.startRefresher(ctx)
+		ns.ReadACL.startRefresher(ctx)
 	}
 	for _, saml := range c.top.SAML {
-		saml.certs.StartRefresher(stop)
+		saml.certs.StartRefresher(ctx)
 	}
-	return stop
 }
 
 // initializes logging exactly one time.
-func (c *Config) initializeLogging() error {
-	if err := c.top.Log.initLogging(); err != nil {
+func (c *Config) initializeLogging(ctx context.Context) error {
+	if err := c.top.Log.initLogging(ctx); err != nil {
 		return err
 	}
-	c.top.Server.initLogging()
+	c.top.Server.initLogging(ctx)
 	for _, saml := range c.top.SAML {
 		saml.initLogging()
 	}

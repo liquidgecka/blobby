@@ -1,6 +1,7 @@
 package secretloader
 
 import (
+	"context"
 	"io/ioutil"
 	"time"
 )
@@ -28,7 +29,7 @@ func (f *fileLoader) CacheDuration() time.Duration {
 }
 
 // Fetch the raw data from the secret.
-func (f *fileLoader) Fetch() ([]byte, error) {
+func (f *fileLoader) Fetch(ctx context.Context) ([]byte, error) {
 	data, err := ioutil.ReadFile(f.file)
 	if err != nil {
 		return nil, err
@@ -39,7 +40,7 @@ func (f *fileLoader) Fetch() ([]byte, error) {
 
 // Returns true if the data in the cache is stale and needs to be refreshed
 // before it can be loaded.
-func (f *fileLoader) IsStale() bool {
+func (f *fileLoader) IsStale(ctx context.Context) bool {
 	if !f.stale || time.Now().After(f.expires) {
 		return true
 	}
@@ -47,16 +48,16 @@ func (f *fileLoader) IsStale() bool {
 }
 
 // Returns true if the secret should be loaded at startup.
-func (f *fileLoader) PreLoad() bool {
+func (f *fileLoader) PreLoad(ctx context.Context) bool {
 	return f.preload
 }
 
 // Returns true if the secret is allowed to be served stale.
-func (f *fileLoader) Stale() bool {
+func (f *fileLoader) Stale(ctx context.Context) bool {
 	return f.stale
 }
 
 // Returns the URL used to generate this Loader.
-func (f *fileLoader) URL() string {
+func (f *fileLoader) URL(ctx context.Context) string {
 	return f.sourceURL
 }

@@ -1,6 +1,8 @@
 package request
 
 import (
+	"context"
+	"log/slog"
 	"net/http"
 	"runtime/debug"
 	"strconv"
@@ -9,13 +11,14 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/internal/sloghelper"
 	"github.com/liquidgecka/blobby/internal/tracing"
 )
 
 var nextRequestID uint64
 
 type Request struct {
+	Context     context.Context
 	ID          uint64
 	Request     *http.Request
 	start       time.Time
@@ -24,68 +27,54 @@ type Request struct {
 	replyBytes  int64
 	response    http.ResponseWriter
 	statusCode  int
-	log         *logging.Logger
+	Log         *slog.Logger
 }
 
 func New(
 	w http.ResponseWriter,
 	req *http.Request,
-	l *logging.Logger,
+	l *slog.Logger,
 ) (
 	r Request,
 ) {
 	r.ID = atomic.AddUint64(&nextRequestID, 1)
+	r.Context = context.Background()
 	r.Request = req
 	r.start = time.Now()
 	r.bodyWrapper.in = req.Body
 	r.response = w
-	r.log = l.NewChild().AddField("request-id", r.ID)
-	if r.log.DebugEnabled() {
-		r.log.Debug(
+	r.Log = l.With(sloghelper.Uint64("request-id", r.ID))
+	if r.Log.Enabled(r.Context, slog.LevelDebug) {
+		r.Log.LogAttrs(
+			r.Context,
+			slog.LevelDebug,
 			"Starting request processing.",
-			logging.NewField("uri", req.URL.String()))
+			sloghelper.String("uri", req.URL.String()))
 	}
 	req.Body = &r.bodyWrapper
 	return
 }
 
 // Logs the access log for this request to the given logger.
-func (r *Request) AccessLog(l *logging.Logger) {
+func (r *Request) AccessLog(l *slog.Logger) {
 	duration := time.Now().Sub(r.start) / time.Millisecond
-	l.Info(
+	l.LogAttrs(
+		r.Context,
+		slog.LevelInfo,
 		"request complete.",
-		logging.NewFieldIface("start", r.start.String()),
-		logging.NewFieldIface("request-id", strconv.FormatUint(r.ID, 10)),
-		logging.NewFieldIface("status", strconv.Itoa(r.statusCode)),
-		logging.NewFieldIface("method", r.Request.Method),
-		logging.NewFieldIface("url", r.Request.URL.String()),
-		logging.NewFieldIface("bytes-read", strconv.FormatInt(
-			r.bodyWrapper.size,
-			10)),
-		logging.NewFieldIface("request-duration-ms", strconv.FormatInt(
-			int64(duration),
-			10)),
+		sloghelper.String("start", r.start.String()),
+		sloghelper.Uint64("request-id", r.ID),
+		sloghelper.Int("status", r.statusCode),
+		sloghelper.String("method", r.Request.Method),
+		sloghelper.String("url", r.Request.URL.String()),
+		sloghelper.Int64("bytes-read", r.bodyWrapper.size),
+		sloghelper.Duration("request-duration-ms", duration),
 	)
 }
 
 // Enables tracing on this Request.
 func (r *Request) AddTracer() {
 	r.trace = tracing.New()
-}
-
-// Generates a debug log against the request. This is useful when special
-// information should be debugged for a specific request ID.
-func (r *Request) Debug(msg string, fields ...logging.Field) {
-	r.log.Debug(msg, fields...)
-}
-
-// Returns true if debug logging is enabled.
-func (r *Request) DebugEnabled() bool {
-	if r.log == nil {
-		return false
-	} else {
-		return r.log.DebugEnabled()
-	}
 }
 
 // Returns a validated Hash header from the Request.
@@ -122,10 +111,12 @@ func (r *Request) PanicHandler(serveError bool) {
 		if he, ok := err.(*HTTPError); ok {
 			he.ServeError(r)
 			if he.Err != nil {
-				r.log.Error(
+				r.Log.LogAttrs(
+					r.Context,
+					slog.LevelError,
 					"Error while processing HTTP request.",
-					logging.NewFieldIface("error", err),
-					logging.NewField("stack", string(debug.Stack())))
+					sloghelper.Error("error", he),
+					sloghelper.String("stack", string(debug.Stack())))
 				if serveError {
 					r.Write([]byte{'\n'})
 					r.Write([]byte(he.Err.Error()))
@@ -134,10 +125,21 @@ func (r *Request) PanicHandler(serveError bool) {
 				}
 			}
 		} else {
-			r.log.Error(
-				"Unexpected error while processing request.",
-				logging.NewFieldIface("error", err),
-				logging.NewField("stack", string(debug.Stack())))
+			if pe, ok := err.(error); ok {
+				r.Log.LogAttrs(
+					r.Context,
+					slog.LevelError,
+					"Unexpected panic while processing request.",
+					sloghelper.Error("error", pe),
+					sloghelper.String("stack", string(debug.Stack())))
+			} else {
+				r.Log.LogAttrs(
+					r.Context,
+					slog.LevelError,
+					"Unexpected error while processing request.",
+					sloghelper.Interface("interface", err),
+					sloghelper.String("stack", string(debug.Stack())))
+			}
 			r.Header().Add("Content-Type", "text/plain")
 			r.WriteHeader(http.StatusInternalServerError)
 			r.Write([]byte("Unexpected internal server error."))

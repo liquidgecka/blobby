@@ -1,6 +1,7 @@
 package delayqueue
 
 import (
+	"context"
 	"time"
 )
 
@@ -9,7 +10,7 @@ import (
 // need to search the data store for a given value.
 type Token struct {
 	// The function to call once this timer element has triggered.
-	f func()
+	f func(context.Context)
 
 	// If set to true then the function will be launched in line rather
 	// than as a background goroutine.

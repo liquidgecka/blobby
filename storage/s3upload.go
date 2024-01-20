@@ -1,34 +1,39 @@
 package storage
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/base64"
 	"encoding/hex"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 
 	"github.com/aws/aws-sdk-go/service/s3"
 
-	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/internal/sloghelper"
 	"github.com/liquidgecka/blobby/storage/fid"
 )
 
 // Uploads a file to S3, performing all necessary operations to get it into
 // the right place and right encoding.
 func uploadToS3(
+	ctx context.Context,
 	fd *os.File,
 	f fid.FID,
 	s3key string,
 	s *Settings,
-	l *logging.Logger,
+	l *slog.Logger,
 ) bool {
 	// Seek to the start of the file.
 	if _, err := fd.Seek(0, io.SeekStart); err != nil {
-		l.Error(
+		l.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"Error seeking to the start of the file.",
-			logging.NewField("file", fd.Name()),
-			logging.NewFieldIface("error", err))
+			sloghelper.String("file", fd.Name()),
+			sloghelper.Error("error", err))
 		return false
 	}
 
@@ -52,10 +57,12 @@ func uploadToS3(
 	// Stat the file to get its size for use with the PutObject request.
 	stat, err := fd.Stat()
 	if err != nil {
-		l.Error(
+		l.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"Error stating the file.",
-			logging.NewField("file", fd.Name()),
-			logging.NewFieldIface("error", err))
+			sloghelper.String("file", fd.Name()),
+			sloghelper.Error("error", err))
 		return false
 	}
 	size := stat.Size()
@@ -67,16 +74,20 @@ func uploadToS3(
 	m := md5.New()
 	buffer := [1024]byte{}
 	if n, err := io.CopyBuffer(m, fd, buffer[:]); err != nil {
-		l.Error(
+		l.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"Error reading from the file.",
-			logging.NewField("file", fd.Name()),
-			logging.NewFieldIface("error", err))
+			sloghelper.String("file", fd.Name()),
+			sloghelper.Error("error", err))
 		return false
 	} else if n != size {
-		l.Error(
+		l.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"Short copy when calculating MD5 hash.",
-			logging.NewFieldInt64("expected-bytes", size),
-			logging.NewFieldInt64("copied-bytes", n))
+			sloghelper.Int64("expected-bytes", size),
+			sloghelper.Int64("copied-bytes", n))
 		return false
 	}
 	poi.ContentLength = &size
@@ -87,42 +98,50 @@ func uploadToS3(
 
 	// And lastly we need to seek back to the start again.
 	if _, err := fd.Seek(0, io.SeekStart); err != nil {
-		l.Error(
+		l.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"Error seeking to the start of the file.",
-			logging.NewField("file", fd.Name()),
-			logging.NewFieldIface("error", err))
+			sloghelper.String("file", fd.Name()),
+			sloghelper.Error("error", err))
 		return false
 	}
 
 	// Next we need to actually initiate the transfer.
 	poo, err := s.S3Client.PutObject(&poi)
 	if err != nil {
-		l.Warning(
+		l.LogAttrs(
+			ctx,
+			slog.LevelWarn,
 			"Error calling s3:PutObject. The request will be retried.",
-			logging.NewField("bucket", *poi.Bucket),
-			logging.NewField("key", *poi.Key),
-			logging.NewFieldIface("error", err))
+			sloghelper.String("bucket", *poi.Bucket),
+			sloghelper.String("key", *poi.Key),
+			sloghelper.Error("error", err))
 		return false
 	}
 
 	// Validate that the uploaded content matches the expected validation
 	// sums.
 	if strings.Trim(*poo.ETag, `"`) != hexHash {
-		l.Warning(
+		l.LogAttrs(
+			ctx,
+			slog.LevelWarn,
 			"Uploaded data has a different MD5 hash.",
-			logging.NewField("bucket", *poi.Bucket),
-			logging.NewField("key", *poi.Key),
-			logging.NewField("local-file", fd.Name()),
-			logging.NewField("expected-md5", *poi.ContentMD5),
-			logging.NewField("returned-md5", *poo.ETag))
+			sloghelper.String("bucket", *poi.Bucket),
+			sloghelper.String("key", *poi.Key),
+			sloghelper.String("local-file", fd.Name()),
+			sloghelper.String("expected-md5", *poi.ContentMD5),
+			sloghelper.String("returned-md5", *poo.ETag))
 		return false
 	}
 
 	// Log something so its clear that something got uploaded.
-	l.Info(
+	l.LogAttrs(
+		ctx,
+		slog.LevelInfo,
 		"Successfully uploaded to S3.",
-		logging.NewField("bucket", *poi.Bucket),
-		logging.NewField("key", *poi.Key))
+		sloghelper.String("bucket", *poi.Bucket),
+		sloghelper.String("key", *poi.Key))
 
 	// Success!
 	return true

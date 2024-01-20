@@ -3,6 +3,7 @@ package cookie
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/cipher"
 	"encoding/base64"
 	"encoding/json"
@@ -16,7 +17,7 @@ type CookieTool struct {
 	// processing cookies. Cookies will be decrypted with all the keys
 	// in order to find one that is valid and will be encrypted with the
 	// first in the list. This allows rotation of keys without disruption.
-	AESKeys func() ([]cipher.Block, error)
+	AESKeys func(context.Context) ([]cipher.Block, error)
 }
 
 // Common hashing function..
@@ -32,7 +33,11 @@ func fnvHash(dest []byte, source []byte) {
 
 // Decodes the given cookie contents into the given interface value. If the
 // cookie is not valid or can not be decoded then an error will be returned.
-func (c *CookieTool) Decode(cookie string, v interface{}) error {
+func (c *CookieTool) Decode(
+	ctx context.Context,
+	cookie string,
+	v interface{},
+) error {
 	// Convert the string we were given into a base64 decoded value. This
 	// removes the base64 encoding and gives us the raw underlying
 	// data.
@@ -44,7 +49,7 @@ func (c *CookieTool) Decode(cookie string, v interface{}) error {
 	// First we need to find the decryption key that works. Since
 	// we have multiple keys (current and old) we need to walk through
 	// each attempting to decrypt the key to find the sentinel.
-	keys, err := c.AESKeys()
+	keys, err := c.AESKeys(ctx)
 	if err != nil {
 		return err
 	}
@@ -91,7 +96,13 @@ func (c *CookieTool) Decode(cookie string, v interface{}) error {
 }
 
 // Like decodeCookie except this is used for encoding.
-func (c *CookieTool) Encode(v interface{}) (string, error) {
+func (c *CookieTool) Encode(
+	ctx context.Context,
+	v interface{},
+) (
+	string,
+	error,
+) {
 	out := bytes.Buffer{}
 	out.Grow(4096)
 	// Write a place holder that we will use for storing our hash once
@@ -104,7 +115,7 @@ func (c *CookieTool) Encode(v interface{}) (string, error) {
 	} else if err = zipper.Close(); err != nil {
 		panic(err)
 	}
-	keys, err := c.AESKeys()
+	keys, err := c.AESKeys(ctx)
 	if err != nil {
 		return "", err
 	}

@@ -2,8 +2,10 @@ package storage
 
 import (
 	"compress/gzip"
+	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -15,7 +17,7 @@ import (
 	"github.com/liquidgecka/blobby/internal/delayqueue"
 	"github.com/liquidgecka/blobby/internal/errors"
 	"github.com/liquidgecka/blobby/internal/human"
-	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/internal/sloghelper"
 	"github.com/liquidgecka/blobby/internal/tracing"
 	"github.com/liquidgecka/blobby/storage/fid"
 	"github.com/liquidgecka/blobby/storage/hasher"
@@ -142,7 +144,7 @@ type primary struct {
 
 	// This logger will be used for logging events that happen specifically
 	// when processing this primary.
-	log *logging.Logger
+	log *slog.Logger
 
 	// The Storage object that manages this primary will use this
 	// to keep a list of priority ordered idle primary files that
@@ -158,14 +160,14 @@ type primary struct {
 // Inserts data into this primary. The data will be read from the given reader,
 // and written to disk. The id returned can be used to look up this data
 // later if needed.
-func (p *primary) Insert(data *InsertData) (string, error) {
+func (p *primary) Insert(ctx context.Context, data *InsertData) (string, error) {
 	// Setup a tracer that will track the time taken inside of the Insert()
 	// call.
 	trace := data.Tracer.NewChild("storage/(primary.Insert)")
 	defer trace.End()
 
 	// Update the primary file state.
-	p.setState(primaryStateInserting)
+	p.setState(ctx, primaryStateInserting)
 
 	// Setup a hasher that we can use to get the Highway hash of the data
 	// that was written to disk.
@@ -193,21 +195,23 @@ func (p *primary) Insert(data *InsertData) (string, error) {
 		// to mark it as failed.
 		if err := p.fd.Truncate(int64(start)); err == nil {
 			if canCont {
-				p.setState(primaryStateWaiting)
+				p.setState(ctx, primaryStateWaiting)
 				return
 			}
 		} else {
 			// Since the file couldn't be returned to service we have to
 			// move it to the uploading state.
-			p.log.Warning(
+			p.log.LogAttrs(
+				ctx,
+				slog.LevelWarn,
 				"Additional error truncating file.",
-				logging.NewFieldIface("error", err))
+				sloghelper.Error("error", err))
 		}
 
 		// This file needs to be kicked into the next state depending on
 		// its current condition. If its empty then it can skip uploading,
 		// otherwise it needs to have the delete cycle started.
-		p.shutdown()
+		p.shutdown(ctx)
 	}
 
 	// Copy the data from the reader into the file. Note that if a gzipper
@@ -227,10 +231,10 @@ func (p *primary) Insert(data *InsertData) (string, error) {
 		// errors but we still need to roll back the write to disk.
 		// We log these at a debug level since they can be common if a
 		// client is not well behaved.
-		if p.log.DebugEnabled() {
+		if p.log.Enabled(ctx, slog.LevelDebug) {
 			p.log.Debug(
 				"Error reading data from the client.",
-				logging.NewFieldIface("error", rerr))
+				sloghelper.Error("error", rerr))
 		}
 		truncate(true)
 		return "", rerr
@@ -241,26 +245,28 @@ func (p *primary) Insert(data *InsertData) (string, error) {
 		atomic.AddInt64(&p.storage.metrics.InternalInsertErrors, 1)
 		p.log.Error(
 			"Error copying data into the file.",
-			logging.NewFieldIface("error", derr))
+			sloghelper.Error("error", derr))
 		truncate(true)
 		return "", derr
 	} else if data.Length != length && data.Length > 0 {
 		// The data written to the local disk was not as long as the data
 		// the client was expected to send us.
-		p.log.Warning(
+		p.log.LogAttrs(
+			ctx,
+			slog.LevelWarn,
 			"Insufficient data while reading from the client.",
-			logging.NewFieldInt64("expected-bytes", data.Length),
-			logging.NewFieldInt64("received-bytes", length))
+			sloghelper.Int64("expected-bytes", data.Length),
+			sloghelper.Int64("received-bytes", length))
 		truncate(true)
 		return "", errors.New("Short read from client.")
-	} else if p.log.DebugEnabled() {
+	} else if p.log.Enabled(ctx, slog.LevelDebug) {
 		p.log.Debug(
 			"Copied data from source.",
-			logging.NewFieldInt64("bytes", length))
+			sloghelper.Int64("bytes", length))
 	}
 
 	// Update the primary file state.
-	p.setState(primaryStateReplicating)
+	p.setState(ctx, primaryStateReplicating)
 
 	// Since we won't know when the replication step completes and the
 	// replicas mark themselves as having received a heart beat we need
@@ -283,7 +289,7 @@ func (p *primary) Insert(data *InsertData) (string, error) {
 		start:     start,
 	}
 	wg := sync.WaitGroup{}
-	fields := make([]logging.Field, len(p.remotes))
+	attrs := make([]slog.Attr, len(p.remotes))
 	errs := make([]error, len(p.remotes))
 	errCount := int32(0)
 	replicaTrace := trace.NewChild("storage/(primary.Insert):replicate")
@@ -296,7 +302,7 @@ func (p *primary) Insert(data *InsertData) (string, error) {
 			// so the insert fails.
 			ei := atomic.AddInt32(&errCount, 1) - 1
 			errs[ei] = fmt.Errorf("Remote failed on a previous step.")
-			fields[int(ei)] = logging.NewFieldIface(
+			attrs[int(ei)] = sloghelper.Error(
 				"replica-"+strconv.Itoa(i)+"-error",
 				fmt.Errorf("Remote previously failed."))
 			continue
@@ -312,7 +318,7 @@ func (p *primary) Insert(data *InsertData) (string, error) {
 			if shutDown, err := remote.Replicate(&rc); err != nil {
 				ei := atomic.AddInt32(&errCount, 1) - 1
 				errs[ei] = fmt.Errorf("%s: %s", remote.String(), err.Error())
-				fields[int(ei)] = logging.NewFieldIface(
+				attrs[int(ei)] = sloghelper.Error(
 					"replica-"+is+"-error",
 					err)
 			} else if shutDown {
@@ -333,7 +339,11 @@ func (p *primary) Insert(data *InsertData) (string, error) {
 		// committed to disk already we can not roll back here, as such we
 		// need to truncate and immediately move to the Uploading state.
 		atomic.AddInt64(&p.storage.metrics.InternalInsertErrors, 1)
-		p.log.Warning("Replication failed.", fields[0:errCount]...)
+		p.log.LogAttrs(
+			ctx,
+			slog.LevelWarn,
+			"Replication failed.",
+			attrs[0:errCount]...)
 		truncate(false)
 		return "", errors.NewMultipleError(
 			"Replication failed",
@@ -355,12 +365,12 @@ func (p *primary) Insert(data *InsertData) (string, error) {
 	// Return the id for the data generated.
 	atomic.AddInt64(&p.storage.metrics.BytesInserted, length)
 	fid := p.fid.ID(start, uint32(length))
-	if p.log.DebugEnabled() {
+	if p.log.Enabled(ctx, slog.LevelDebug) {
 		p.log.Debug(
 			"Insertion completed.",
-			logging.NewFieldUint64("start-offset", start),
-			logging.NewFieldInt64("length", length),
-			logging.NewField("fid", fid))
+			sloghelper.Uint64("start-offset", start),
+			sloghelper.Int64("length", length),
+			sloghelper.String("fid", fid))
 	}
 
 	// If the file is larger than is allowed via our settings then
@@ -371,34 +381,34 @@ func (p *primary) Insert(data *InsertData) (string, error) {
 		p.log.Debug(
 			"At least one replica is shutting down. Queuing for upload.")
 		if p.settings.Compress {
-			p.setState(primaryStatePendingCompression)
+			p.setState(ctx, primaryStatePendingCompression)
 		} else {
-			p.setState(primaryStatePendingUpload)
+			p.setState(ctx, primaryStatePendingUpload)
 		}
 	} else if p.offset > p.settings.UploadLargerThan {
 		p.log.Debug("File is too large, queuing for upload.")
 		if p.settings.Compress {
-			p.setState(primaryStatePendingCompression)
+			p.setState(ctx, primaryStatePendingCompression)
 		} else {
-			p.setState(primaryStatePendingUpload)
+			p.setState(ctx, primaryStatePendingUpload)
 		}
 	} else {
 		p.log.Debug("File can still be grown.")
-		p.setState(primaryStateWaiting)
+		p.setState(ctx, primaryStateWaiting)
 	}
 
 	return fid, nil
 }
 
 // Opens the file on disk, and finds remotes to start replicating too.
-func (p *primary) Open() bool {
+func (p *primary) Open(ctx context.Context) bool {
 	// Setup the failedRemotes array. This is used for tracking which
 	// remotes must receive the Delete() operation in order for a file
 	// delete to be considered successful.
 	p.failedRemotes = make([]bool, len(p.remotes))
 
 	// Open the file on disk so we have a workable file descriptor.
-	p.setState(primaryStateOpening)
+	p.setState(ctx, primaryStateOpening)
 	fpath := filepath.Join(p.settings.BaseDirectory, p.fidStr)
 	flags := os.O_CREATE | os.O_RDWR | os.O_APPEND
 	mode := os.FileMode(0644)
@@ -408,8 +418,8 @@ func (p *primary) Open() bool {
 		// file was not able to be opened on disk.
 		p.log.Error(
 			"Error opening file",
-			logging.NewFieldIface("error", err))
-		p.setState(primaryStateComplete)
+			sloghelper.Error("error", err))
+		p.setState(ctx, primaryStateComplete)
 		return false
 	}
 
@@ -419,8 +429,8 @@ func (p *primary) Open() bool {
 	p.resetHeartBeatTimer()
 
 	// Notify each replica in parallel so they can initialize locally.
-	p.setState(primaryStateInitializingRepls)
-	fields := make([]logging.Field, len(p.remotes))
+	p.setState(ctx, primaryStateInitializingRepls)
+	attrs := make([]slog.Attr, len(p.remotes))
 	errCount := int32(0)
 	wg := sync.WaitGroup{}
 	for i, r := range p.remotes {
@@ -430,7 +440,7 @@ func (p *primary) Open() bool {
 			err := r.Initialize(p.settings.NameSpace, p.fidStr)
 			if err != nil {
 				i := int(atomic.AddInt32(&errCount, 1)) - 1
-				fields[i] = logging.NewFieldIface(
+				attrs[i] = sloghelper.Error(
 					"replica-"+strconv.FormatInt(int64(i), 10)+"-error",
 					err)
 				p.failedRemotes[i] = true
@@ -445,11 +455,15 @@ func (p *primary) Open() bool {
 		// Describe the error to the caller so that it can be handled. We
 		// log the errors with details and then return a generic description
 		// to the caller.
-		p.log.Error("Error initializing the replicas.", fields[0:errCount]...)
+		p.log.LogAttrs(
+			ctx,
+			slog.LevelError,
+			"Error initializing the replicas.",
+			attrs[0:errCount]...)
 
 		// Change the state to the Pending Delete state so its files can
 		// be cleaned up by the deleter task.
-		p.setState(primaryStatePendingDeleteRemotes)
+		p.setState(ctx, primaryStatePendingDeleteRemotes)
 
 		// Return the error generated above.
 		return false
@@ -466,7 +480,7 @@ func (p *primary) Open() bool {
 
 	// Success.
 	p.log.Debug("Primary file successfully opened.")
-	p.setState(primaryStateWaiting)
+	p.setState(ctx, primaryStateWaiting)
 	return true
 }
 
@@ -500,9 +514,9 @@ func (p *primary) Status() string {
 
 // Called by the CompressWorkQueue to initiate compression on the underlying
 // file.
-func (p *primary) compress() {
+func (p *primary) compress(ctx context.Context) {
 	// Set the state.
-	p.setState(primaryStateCompressing)
+	p.setState(ctx, primaryStateCompressing)
 	p.log.Debug("Compressing the file.")
 
 	// Open the file that will store the compressed data long term.
@@ -515,9 +529,9 @@ func (p *primary) compress() {
 		// file was not able to be opened on disk.
 		p.log.Error(
 			"Error opening compressed file",
-			logging.NewField("file", fpath),
-			logging.NewFieldIface("error", err))
-		p.setState(primaryStatePendingCompression)
+			sloghelper.String("file", fpath),
+			sloghelper.Error("error", err))
+		p.setState(ctx, primaryStatePendingCompression)
 		return
 	}
 
@@ -525,9 +539,9 @@ func (p *primary) compress() {
 	if _, err = p.fd.Seek(0, io.SeekStart); err != nil {
 		p.log.Error(
 			"Error seeking in the data file.",
-			logging.NewField("file", p.fd.Name()),
-			logging.NewFieldIface("error", err))
-		p.setState(primaryStatePendingCompression)
+			sloghelper.String("file", p.fd.Name()),
+			sloghelper.Error("error", err))
+		p.setState(ctx, primaryStatePendingCompression)
 		return
 	}
 
@@ -543,10 +557,10 @@ func (p *primary) compress() {
 	if _, err = io.CopyBuffer(zipper, p.fd, buffer[:]); err != nil {
 		p.log.Error(
 			"Error generating the compressed data file.",
-			logging.NewField("source-file", p.fd.Name()),
-			logging.NewField("dest-file", p.compressFd.Name()),
-			logging.NewFieldIface("error", err))
-		p.setState(primaryStatePendingCompression)
+			sloghelper.String("source-file", p.fd.Name()),
+			sloghelper.String("dest-file", p.compressFd.Name()),
+			sloghelper.Error("error", err))
+		p.setState(ctx, primaryStatePendingCompression)
 		return
 	}
 
@@ -554,31 +568,31 @@ func (p *primary) compress() {
 	if err = zipper.Close(); err != nil {
 		p.log.Error(
 			"Error closing the compressed file.",
-			logging.NewField("file", p.compressFd.Name()),
-			logging.NewFieldIface("error", err))
-		p.setState(primaryStatePendingCompression)
+			sloghelper.String("file", p.compressFd.Name()),
+			sloghelper.Error("error", err))
+		p.setState(ctx, primaryStatePendingCompression)
 		return
 	}
 
 	// Success.
 	p.log.Info("Successfully compressed the data file.")
-	p.setState(primaryStatePendingUpload)
+	p.setState(ctx, primaryStatePendingUpload)
 }
 
 // Called by the DelayQueue to indicate that the delete delay has expired and
 // now the file can be moved into the deleting phase.
-func (p *primary) delayDelete() {
+func (p *primary) delayDelete(ctx context.Context) {
 	p.log.Info("Delete delay has passed.")
-	p.setState(primaryStatePendingDeleteLocal)
+	p.setState(ctx, primaryStatePendingDeleteLocal)
 }
 
 // Called by the DeleteWorkQueue to initiate the deleting of a local file.
-func (p *primary) deleteLocal() {
+func (p *primary) deleteLocal(ctx context.Context) {
 	// Metrics
 	p.storage.metrics.PrimaryDeletes.IncTotal()
 
 	// Now close the local file and remove it from the file system.
-	p.setState(primaryStateDeletingLocal)
+	p.setState(ctx, primaryStateDeletingLocal)
 	p.storage.metrics.FilesDeleted.IncTotal()
 	if p.fd != nil {
 		err := os.Remove(p.fd.Name())
@@ -587,9 +601,9 @@ func (p *primary) deleteLocal() {
 			// can be deleted again.
 			p.log.Error(
 				"Error deleting local file.",
-				logging.NewFieldIface("error", err))
+				sloghelper.Error("error", err))
 			p.storage.metrics.FilesDeleted.IncFailures()
-			p.setState(primaryStatePendingDeleteLocal)
+			p.setState(ctx, primaryStatePendingDeleteLocal)
 			return
 		} else {
 			p.storage.metrics.FilesDeleted.IncSuccesses()
@@ -598,9 +612,11 @@ func (p *primary) deleteLocal() {
 		// Close the open file handle. If there is an error log it, but there
 		// is not much more we can do so move on anyway.
 		if err := p.fd.Close(); err != nil {
-			p.log.Warning(
+			p.log.LogAttrs(
+				ctx,
+				slog.LevelWarn,
 				"Error closing open file handle.",
-				logging.NewFieldIface("error", err))
+				sloghelper.Error("error", err))
 		}
 
 		// Set the file descriptor to nil so it won't be used now that
@@ -609,15 +625,15 @@ func (p *primary) deleteLocal() {
 	}
 
 	// Success, change state and notify the storage implementation.
-	p.setState(primaryStateComplete)
+	p.setState(ctx, primaryStateComplete)
 	p.log.Info("Processing complete and files are removed.")
 	p.storage.metrics.PrimaryDeletes.IncSuccesses()
 }
 
 // Deletes the compressed file from disk (if configured).
-func (p *primary) deleteCompressed() {
+func (p *primary) deleteCompressed(ctx context.Context) {
 	if p.compressFd != nil {
-		p.setState(primaryStateDeletingCompressed)
+		p.setState(ctx, primaryStateDeletingCompressed)
 		p.storage.metrics.FilesDeleted.IncTotal()
 		err := os.Remove(p.compressFd.Name())
 		if err != nil && !os.IsNotExist(err) {
@@ -625,9 +641,9 @@ func (p *primary) deleteCompressed() {
 			// can be deleted again.
 			p.log.Error(
 				"Error deleting local compressed file.",
-				logging.NewFieldIface("error", err))
+				sloghelper.Error("error", err))
 			p.storage.metrics.FilesDeleted.IncFailures()
-			p.setState(primaryStatePendingDeleteCompressed)
+			p.setState(ctx, primaryStatePendingDeleteCompressed)
 			return
 		} else {
 			p.storage.metrics.FilesDeleted.IncSuccesses()
@@ -643,23 +659,23 @@ func (p *primary) deleteCompressed() {
 	// primaryStateDelayLocalDelete, and if neither of the above conditions
 	// are true we move into primaryStatePendingDeleteLocal.
 	if len(p.remotes) > 0 {
-		p.setState(primaryStatePendingDeleteRemotes)
+		p.setState(ctx, primaryStatePendingDeleteRemotes)
 	} else if p.settings.DelayDelete > 0 {
-		p.setState(primaryStateDelayLocalDelete)
+		p.setState(ctx, primaryStateDelayLocalDelete)
 	} else {
-		p.setState(primaryStatePendingDeleteLocal)
+		p.setState(ctx, primaryStatePendingDeleteLocal)
 	}
 }
 
 // Deletes the files from the remote replicas.
-func (p *primary) deleteRemotes() {
+func (p *primary) deleteRemotes(ctx context.Context) {
 	// Set the state on the primary.
-	p.setState(primaryStateDeletingRemotes)
+	p.setState(ctx, primaryStateDeletingRemotes)
 
 	// Contact each remote in parallel and request its deletion.
 	p.log.Debug("Triggering a delete on all remotes.")
 	wg := sync.WaitGroup{}
-	fields := make([]logging.Field, len(p.remotes))
+	attrs := make([]slog.Attr, len(p.remotes))
 	errCount := int32(0)
 	for i, remote := range p.remotes {
 		if remote == nil {
@@ -673,7 +689,7 @@ func (p *primary) deleteRemotes() {
 			err := remote.Delete(p.settings.NameSpace, p.fidStr)
 			if err != nil && !p.failedRemotes[i] {
 				ei := atomic.AddInt32(&errCount, 1) - 1
-				fields[int(ei)] = logging.NewFieldIface(
+				attrs[int(ei)] = sloghelper.Error(
 					"replica-"+strconv.FormatInt(int64(i), 10)+"-error",
 					err)
 			}
@@ -691,9 +707,16 @@ func (p *primary) deleteRemotes() {
 		// If the remote misses the Delete call from the primary then it will
 		// eventually trigger an upload of the same data which should not
 		// be an issue other than duplicating work.
-		p.log.Warning("Error deleting from remotes.", fields...)
+		p.log.LogAttrs(
+			ctx,
+			slog.LevelWarn,
+			"Error deleting from remotes.",
+			attrs...)
 	} else {
-		p.log.Debug("Successfully deleted replicas.")
+		p.log.LogAttrs(
+			ctx,
+			slog.LevelDebug,
+			"Successfully deleted replicas.")
 	}
 
 	// FIXME
@@ -701,26 +724,26 @@ func (p *primary) deleteRemotes() {
 	// there is a DelayDelete set in settings then we need to go into that
 	// state, otherwise we need to go into PendingDeleteLocal.
 	if p.settings.DelayDelete > 0 {
-		p.setState(primaryStateDelayLocalDelete)
+		p.setState(ctx, primaryStateDelayLocalDelete)
 	} else {
-		p.setState(primaryStatePendingDeleteLocal)
+		p.setState(ctx, primaryStatePendingDeleteLocal)
 	}
 }
 
 // Called to indicate that the primary has expired. Expiration means that
 // the file is old enough to be force uploaded at this point.
-func (p *primary) expire() {
+func (p *primary) expire(ctx context.Context) {
 	// Only expire the file if its in the waiting list otherwise some other
 	// process will be altering the state which will cause consistency
 	// errors if we attempt to change things.
 	if p.storage.waiting.Remove(p) {
-		p.shutdown()
+		p.shutdown(ctx)
 	}
 }
 
 // Triggered by the DelayQueue to signal that a heart beat needs to be
 // executed against the replicas.
-func (p *primary) heartBeatEvent() {
+func (p *primary) heartBeatEvent(ctx context.Context) {
 	p.log.Debug("Performing a heart beat to the replicas.")
 
 	// Schedule the next heart beat.
@@ -728,7 +751,7 @@ func (p *primary) heartBeatEvent() {
 
 	// We need to initiate a new heart beat against each replica.
 	wg := sync.WaitGroup{}
-	fields := make([]logging.Field, len(p.remotes))
+	attrs := make([]slog.Attr, len(p.remotes))
 	errCount := int32(0)
 	for i, remote := range p.remotes {
 		if remote == nil {
@@ -741,12 +764,12 @@ func (p *primary) heartBeatEvent() {
 			ns := p.settings.NameSpace
 			if shutDown, err := remote.HeartBeat(ns, p.fidStr); err != nil {
 				ei := atomic.AddInt32(&errCount, 1) - 1
-				fields[int(ei)] = logging.NewFieldIface(
+				attrs[int(ei)] = sloghelper.Error(
 					"replica-"+strconv.FormatInt(int64(i), 10)+"-error",
 					err)
 			} else if shutDown {
 				ei := atomic.AddInt32(&errCount, 1) - 1
-				fields[int(ei)] = logging.NewFieldIface(
+				attrs[int(ei)] = sloghelper.Error(
 					"replica-"+strconv.FormatInt(int64(i), 10)+"-error",
 					replicaIsShuttingDownError)
 			}
@@ -762,16 +785,18 @@ func (p *primary) heartBeatEvent() {
 
 	// The primary is still in the Waiting state, which means that it is in
 	// the waiting list as well.
-	p.log.Warning(
+	p.log.LogAttrs(
+		ctx,
+		slog.LevelWarn,
 		"Error sending health check, failing the file.",
-		fields[0:errCount]...)
+		attrs[0:errCount]...)
 
 	// If the primary is currently in the waiting queue then we can take
 	// control directly and shut it down which will clean up the file
 	// based on its current size and configuration.
 	p.unhealthy = true
 	if p.storage.waiting.Remove(p) {
-		p.shutdown()
+		p.shutdown(ctx)
 	}
 }
 
@@ -780,7 +805,7 @@ func (p *primary) resetHeartBeatTimer() {
 	hbTime := p.settings.HeartBeatTime / 2
 	p.log.Debug(
 		"Setting heart beat timer",
-		logging.NewField("timer", hbTime.String()))
+		sloghelper.String("timer", hbTime.String()))
 	p.settings.DelayQueue.Alter(
 		&p.heartBeatToken,
 		time.Now().Add(hbTime),
@@ -788,21 +813,21 @@ func (p *primary) resetHeartBeatTimer() {
 }
 
 // Sets the current state of this primary.
-func (p *primary) setState(n int32) {
+func (p *primary) setState(ctx context.Context, n int32) {
 	// When changing states we need to check to see if a backend has failed
 	// so that we do not transition into the waiting state again.
 	if n == primaryStateWaiting && p.unhealthy {
-		p.shutdown()
+		p.shutdown(ctx)
 		return
 	}
 
 	// Swap the old and new states so that we can log them both.
 	oldN := atomic.SwapInt32(&p.state, n)
-	if p.log.DebugEnabled() {
+	if p.log.Enabled(ctx, slog.LevelDebug) {
 		p.log.Debug(
 			"State changed.",
-			logging.NewField("old-state", primaryStateStrings[oldN]),
-			logging.NewField("new-state", primaryStateStrings[n]),
+			sloghelper.String("old-state", primaryStateStrings[oldN]),
+			sloghelper.String("new-state", primaryStateStrings[n]),
 		)
 	}
 	p.storage.primaryStateChange(p, oldN, n)
@@ -859,7 +884,7 @@ func (p *primary) setState(n int32) {
 	case primaryStateDelayLocalDelete:
 		p.log.Info(
 			"Delaying local file delete.",
-			logging.NewField("time", p.settings.DelayDelete.String()))
+			sloghelper.String("time", p.settings.DelayDelete.String()))
 		p.settings.DelayQueue.Alter(
 			&p.delayDeleteToken,
 			time.Now().Add(p.settings.DelayDelete),
@@ -872,16 +897,16 @@ func (p *primary) setState(n int32) {
 
 // Shuts down the file. This is used to move the file from the inserting
 // phase of the files life cycle into the uploading and deleting phase.
-func (p *primary) shutdown() {
+func (p *primary) shutdown(ctx context.Context) {
 	// Depending on the state of the file we can decide where to send it.
 	// If the file is empty then we don't need to bother with uploading
 	// it. We can just skip right to the delete stages.
 	if p.offset == 0 {
 		p.log.Info("The primary expired but is empty, skipping upload.")
 		if len(p.remotes) > 0 {
-			p.setState(primaryStatePendingDeleteRemotes)
+			p.setState(ctx, primaryStatePendingDeleteRemotes)
 		} else {
-			p.setState(primaryStatePendingDeleteLocal)
+			p.setState(ctx, primaryStatePendingDeleteLocal)
 		}
 		return
 	}
@@ -890,18 +915,18 @@ func (p *primary) shutdown() {
 	// uploading or compressing.
 	if p.settings.Compress {
 		p.log.Info("This primary expired, starting compression process.")
-		p.setState(primaryStatePendingCompression)
+		p.setState(ctx, primaryStatePendingCompression)
 	} else {
 		p.log.Info("This primary expired, starting the upload process.")
-		p.setState(primaryStatePendingUpload)
+		p.setState(ctx, primaryStatePendingUpload)
 	}
 }
 
 // Called by the uploader to trigger a Upload of the underlying file.
-func (p *primary) upload() {
+func (p *primary) upload(ctx context.Context) {
 	// Set the state
 	p.storage.metrics.PrimaryUploads.IncTotal()
-	p.setState(primaryStateUploading)
+	p.setState(ctx, primaryStateUploading)
 	p.log.Debug("Starting upload.")
 
 	// Attempt the upload.
@@ -909,9 +934,12 @@ func (p *primary) upload() {
 	if p.settings.Compress {
 		fd = p.compressFd
 	}
-	if !uploadToS3(fd, p.fid, p.s3key, p.settings, p.log) {
-		p.log.Warning("Requeuing for upload.")
-		p.setState(primaryStatePendingUpload)
+	if !uploadToS3(ctx, fd, p.fid, p.s3key, p.settings, p.log) {
+		p.log.LogAttrs(
+			ctx,
+			slog.LevelWarn,
+			"Requeuing for upload.")
+		p.setState(ctx, primaryStatePendingUpload)
 		p.storage.metrics.PrimaryUploads.IncFailures()
 		return
 	} else {
@@ -921,12 +949,12 @@ func (p *primary) upload() {
 	// Once the upload is successful we can branch in several directions
 	// depending on configuration.
 	if p.settings.Compress {
-		p.setState(primaryStatePendingDeleteCompressed)
+		p.setState(ctx, primaryStatePendingDeleteCompressed)
 	} else if len(p.remotes) > 0 {
-		p.setState(primaryStatePendingDeleteRemotes)
+		p.setState(ctx, primaryStatePendingDeleteRemotes)
 	} else if p.settings.DelayDelete > 0 {
-		p.setState(primaryStateDelayLocalDelete)
+		p.setState(ctx, primaryStateDelayLocalDelete)
 	} else {
-		p.setState(primaryStatePendingDeleteLocal)
+		p.setState(ctx, primaryStatePendingDeleteLocal)
 	}
 }

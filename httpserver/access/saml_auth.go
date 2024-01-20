@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/xml"
 	"fmt"
+	"log/slog"
 	"math/rand"
 	"net/http"
 	"strings"
@@ -14,7 +15,7 @@ import (
 	"github.com/liquidgecka/blobby/httpserver/cookie"
 	"github.com/liquidgecka/blobby/httpserver/request"
 	"github.com/liquidgecka/blobby/httpserver/secretloader"
-	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/internal/sloghelper"
 )
 
 const (
@@ -91,7 +92,7 @@ type SAML struct {
 // Writes the meta data for the service provider out to the given
 // request object.
 func (s *SAML) MetaData(ir *request.Request) {
-	md, err := s.Provider.MetaData()
+	md, err := s.Provider.MetaData(ir.Context)
 	if err != nil {
 		panic(&request.HTTPError{
 			Status:   http.StatusInternalServerError,
@@ -130,7 +131,7 @@ func (s *SAML) Post(ir *request.Request) {
 			Status:   http.StatusBadRequest,
 			Response: "Malformed SAML response (Missing RelayState cookie).",
 		})
-	} else if err := s.CookieTool.Decode(cookie.Value, &c); err != nil {
+	} else if err := s.CookieTool.Decode(ir.Context, cookie.Value, &c); err != nil {
 		panic(&request.HTTPError{
 			Status:   http.StatusBadRequest,
 			Response: "Malformed SAML response (Invalid RelayState cookie).",
@@ -141,7 +142,7 @@ func (s *SAML) Post(ir *request.Request) {
 	// of the details in the request match as expected. This will return the
 	// assertions made by the identity provider about the user that
 	// authenticated.
-	atn, err := s.Provider.ParseResponse(ir.Request, c.ID)
+	atn, err := s.Provider.ParseResponse(ir.Context, ir.Request, c.ID)
 	if err != nil {
 		panic(&request.HTTPError{
 			Status:   http.StatusForbidden,
@@ -181,7 +182,7 @@ func (s *SAML) Post(ir *request.Request) {
 	// Provider. We can now set a session cookie for them and redirect them
 	// to the place they intended to go in the first place.
 	ac.Expires.Time = time.Now().Add(s.CookieValidity)
-	ctext, err := s.CookieTool.Encode(&ac)
+	ctext, err := s.CookieTool.Encode(ir.Context, &ac)
 	if err != nil {
 		panic(err)
 	}
@@ -204,11 +205,13 @@ func (s *SAML) Post(ir *request.Request) {
 	ir.WriteHeader(http.StatusFound)
 
 	// Log the quthentication.
-	if ir.DebugEnabled() {
-		ir.Debug(
+	if ir.Log.Enabled(ir.Context, slog.LevelDebug) {
+		ir.Log.LogAttrs(
+			ir.Context,
+			slog.LevelDebug,
 			"User  successfully authenticated.",
-			logging.NewField("user", ac.User),
-			logging.NewField("tags", strings.Join(ac.Tags, ",")))
+			sloghelper.String("user", ac.User),
+			sloghelper.String("tags", strings.Join(ac.Tags, ",")))
 	}
 }
 
@@ -257,7 +260,7 @@ type SAMLAuth struct {
 // this specifically will redirect to the appropriate login page.
 func (s *SAMLAuth) assert(ir *request.Request) {
 	// Create a request that can be forwarded to the identify provider.
-	req, err := s.Source.Provider.AuthenticationRequest()
+	req, err := s.Source.Provider.AuthenticationRequest(ir.Context)
 	if err != nil {
 		panic(&request.HTTPError{
 			Status:   http.StatusInternalServerError,
@@ -283,7 +286,7 @@ func (s *SAMLAuth) assert(ir *request.Request) {
 	rawCookieName := make([]byte, 8)
 	rand.Read(rawCookieName)
 	cookieName := hex.EncodeToString(rawCookieName)
-	value, err := s.Source.CookieTool.Encode(&c)
+	value, err := s.Source.CookieTool.Encode(ir.Context, &c)
 	if err != nil {
 		panic(err)
 	}
@@ -305,49 +308,63 @@ func (s *SAMLAuth) assert(ir *request.Request) {
 func (s *SAMLAuth) check(ir *request.Request) bool {
 	v := samlAuthCookie{}
 	if cook, err := ir.Request.Cookie(s.Source.CookieName); err != nil {
-		if ir.DebugEnabled() {
-			ir.Debug("Authentication cookie not set.")
+		if ir.Log.Enabled(ir.Context, slog.LevelDebug) {
+			ir.Log.LogAttrs(
+				ir.Context,
+				slog.LevelDebug,
+				"Authentication cookie not set.")
 		}
 		return false
-	} else if err := s.Source.CookieTool.Decode(cook.Value, &v); err != nil {
-		if ir.DebugEnabled() {
-			ir.Debug("Authentication cookie is set, but is invalid.")
+	} else if err := s.Source.CookieTool.Decode(ir.Context, cook.Value, &v); err != nil {
+		if ir.Log.Enabled(ir.Context, slog.LevelDebug) {
+			ir.Log.LogAttrs(
+				ir.Context,
+				slog.LevelDebug,
+				"Authentication cookie is set, but is invalid.")
 		}
 		return false
 	} else if v.Expires.Before(time.Now()) {
-		if ir.DebugEnabled() {
-			ir.Debug(
+		if ir.Log.Enabled(ir.Context, slog.LevelDebug) {
+			ir.Log.LogAttrs(
+				ir.Context,
+				slog.LevelDebug,
 				"Authentication cookie is expired.",
-				logging.NewField("user", v.User),
-				logging.NewField("tags", strings.Join(v.Tags, ",")),
-				logging.NewField("expires", v.Expires.String()))
+				sloghelper.String("user", v.User),
+				sloghelper.String("tags", strings.Join(v.Tags, ",")),
+				sloghelper.String("expires", v.Expires.String()))
 		}
 		return false
 	} else if len(s.UserTags) == 0 {
-		if ir.DebugEnabled() {
-			ir.Debug(
+		if ir.Log.Enabled(ir.Context, slog.LevelDebug) {
+			ir.Log.LogAttrs(
+				ir.Context,
+				slog.LevelDebug,
 				"User is authenticated and valid. No tags are required.",
-				logging.NewField("user", v.User),
-				logging.NewField("tags", strings.Join(v.Tags, ",")))
+				sloghelper.String("user", v.User),
+				sloghelper.String("tags", strings.Join(v.Tags, ",")))
 		}
 		return true
 	} else {
 		for _, want := range s.UserTags {
 			for _, have := range v.Tags {
 				if have == want {
-					ir.Debug(
+					ir.Log.LogAttrs(
+						ir.Context,
+						slog.LevelDebug,
 						"User is authenticated and a tag matches.",
-						logging.NewField("tag", want),
-						logging.NewField("user", v.User),
-						logging.NewField("tags", strings.Join(v.Tags, ",")))
+						sloghelper.String("tag", want),
+						sloghelper.String("user", v.User),
+						sloghelper.String("tags", strings.Join(v.Tags, ",")))
 					return true
 				}
 			}
 		}
-		ir.Debug(
+		ir.Log.LogAttrs(
+			ir.Context,
+			slog.LevelDebug,
 			"Authentication cookie is valid, but tags do not match.",
-			logging.NewField("user", v.User),
-			logging.NewField("user", v.User))
+			sloghelper.String("user", v.User),
+			sloghelper.String("user", v.User))
 		return false
 	}
 }

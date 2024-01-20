@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"runtime"
 	"strconv"
@@ -10,7 +12,7 @@ import (
 	"github.com/liquidgecka/blobby/config"
 	"github.com/liquidgecka/blobby/httpserver"
 	"github.com/liquidgecka/blobby/internal/delayqueue"
-	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/internal/sloghelper"
 )
 
 // Common arguments.
@@ -30,8 +32,8 @@ var (
 var (
 	DelayQueue *delayqueue.DelayQueue
 	Server     httpserver.Server
-	Rotators   []*logging.Rotator
-	log        *logging.Logger
+	Rotators   []*sloghelper.Rotator
+	log        *slog.Logger
 )
 
 // Expected to be set via -ldflags/-X by the linker
@@ -50,27 +52,33 @@ func Version() string {
 		runtime.Version())
 }
 
-func WritePIDFile(file string) {
-	log.Debug(
+func WritePIDFile(ctx context.Context, file string) {
+	log.LogAttrs(
+		ctx,
+		slog.LevelDebug,
 		"Writing pid file.",
-		logging.NewField("file", file))
+		sloghelper.String("file", file))
 	fd, err := os.OpenFile(
 		file,
 		os.O_CREATE|os.O_TRUNC|os.O_WRONLY,
 		0644)
 	if err != nil {
-		log.Error(
+		log.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"Error opening PID file.",
-			logging.NewField("file", file),
-			logging.NewFieldIface("error", err))
+			sloghelper.String("file", file),
+			sloghelper.Error("error", err))
 		os.Exit(1)
 	}
 	defer fd.Close()
 	if _, err = fd.WriteString(strconv.Itoa(os.Getpid()) + "\n"); err != nil {
-		log.Error(
+		log.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"Error writing pid file.",
-			logging.NewField("file", file),
-			logging.NewFieldIface("error", err))
+			sloghelper.String("file", file),
+			sloghelper.Error("error", err))
 		os.Exit(1)
 	}
 }
@@ -78,50 +86,59 @@ func WritePIDFile(file string) {
 // All of the initialization work happens in this function in order to allow
 // a limited scope of variables so that startup temporary data can be purged
 // once the server is fully running.
-func configure() {
+func configure(ctx context.Context) {
 	// Parse the config file.
 	cnf, err := config.Parse(*Config)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s\n", err.Error())
 		os.Exit(1)
-	} else if err := cnf.InitializeLogging(); err != nil {
+	} else if err := cnf.InitializeLogging(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "%s\n", err.Error())
 		os.Exit(1)
 	} else {
 		DelayQueue = cnf.GetDelayQueue()
-		Rotators = cnf.GetRotators()
-		Server = cnf.GetServer()
-		log = cnf.GetLogger()
+		Rotators = cnf.GetRotators(ctx)
+		Server = cnf.GetServer(ctx)
+		log = cnf.GetLogger(ctx)
 	}
 
 	// Log some build information.
-	log.Info(
+	log.LogAttrs(
+		ctx,
+		slog.LevelError,
 		"Server initializing.",
-		logging.NewField("build-version", BuildVersion),
-		logging.NewField("build-time", BuildTimeEpoch))
+		sloghelper.String("build-version", BuildVersion),
+		sloghelper.String("build-time", BuildTimeEpoch))
 
 	// Start the log rotator.
-	SetupRotation()
+	SetupRotation(ctx)
 
 	// Start the delay queue.
 	DelayQueue.Start()
 
 	// Start and log each configured namespace.
-	for name, ns := range cnf.GetNameSpaces() {
-		if err := ns.Start(); err != nil {
-			log.Error(
+	for name, ns := range cnf.GetNameSpaces(ctx) {
+		if err := ns.Start(ctx); err != nil {
+			log.LogAttrs(
+				ctx,
+				slog.LevelError,
 				"Unable to start namespace.",
-				logging.NewField("namespace", name),
-				logging.NewFieldIface("error", err))
+				sloghelper.String("namespace", name),
+				sloghelper.Error("error", err))
 			os.Exit(4)
 		}
 	}
 
-	log.Info("Loading secrets (if configured).")
-	if err := cnf.PreLoadSecrets(); err != nil {
-		log.Error(
+	log.LogAttrs(
+		ctx,
+		slog.LevelInfo,
+		"Loading secrets (if configured).")
+	if err := cnf.PreLoadSecrets(ctx); err != nil {
+		log.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"Error loading secrets.",
-			logging.NewFieldIface("error", err))
+			sloghelper.Error("error", err))
 		os.Exit(3)
 	}
 
@@ -130,26 +147,31 @@ func configure() {
 	// that we don't have two instances attempting to work on the files
 	// on the file system at the same time.
 	if err := Server.Listen(); err != nil {
-		log.Error(
+		log.LogAttrs(
+			ctx,
+			slog.LevelError,
 			"Unable to listen to the network address.",
-			logging.NewField("server", Server.Addr()),
-			logging.NewFieldIface("error", err))
+			sloghelper.String("server", Server.Addr()),
+			sloghelper.Error("error", err))
 		os.Exit(2)
 	}
 
 	// Log a line so its clear that the server is serving traffic beyond
 	// this point.
-	log.Info("HTTP Server is serving.",
-		logging.NewField("addr", Server.Addr()))
+	log.LogAttrs(
+		ctx,
+		slog.LevelInfo,
+		"HTTP Server is serving.",
+		sloghelper.String("addr", Server.Addr()))
 
 	// Write the pid file (if configured).
 	if pidfile := cnf.GetPIDFile(); pidfile != "" {
-		WritePIDFile(pidfile)
+		WritePIDFile(ctx, pidfile)
 	}
 
 	// Start the secret refreshers that will automatically update the
 	// data as configured. For now we do nothing with the stop channel.
-	cnf.StartSecretRefreshers()
+	cnf.StartSecretRefreshers(ctx)
 
 	// FIXME: Health checkers!
 }
@@ -172,12 +194,14 @@ func main() {
 	}
 
 	// Run through the configuration work.
-	configure()
+	configure(context.Background())
 
 	// Start the HTTP server and run it. This is the primary work processor
 	// so its run in the main thread.
-	log.Error(
+	log.LogAttrs(
+		context.Background(),
+		slog.LevelError,
 		"HTTP Server exited!",
-		logging.NewFieldIface("error", Server.Run()))
+		sloghelper.Error("error", Server.Run()))
 	os.Exit(1)
 }

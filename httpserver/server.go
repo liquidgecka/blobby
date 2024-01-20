@@ -2,11 +2,13 @@ package httpserver
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/pprof"
@@ -18,7 +20,7 @@ import (
 
 	"github.com/liquidgecka/blobby/httpserver/request"
 	"github.com/liquidgecka/blobby/internal/compat"
-	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/internal/sloghelper"
 	"github.com/liquidgecka/blobby/storage"
 	"github.com/liquidgecka/blobby/storage/fid"
 	"github.com/liquidgecka/blobby/storage/metrics"
@@ -75,6 +77,7 @@ func New(settings *Settings) Server {
 		}
 	}
 	s := &server{
+		context:  context.Background(), // FIXME
 		settings: *settings,
 		httpServer: compat.SetIdleTimeout(
 			&http.Server{
@@ -109,6 +112,9 @@ type server struct {
 	// The listener that this http server will serve on.
 	listener net.Listener
 
+	// The context that the server is running within.
+	context context.Context
+
 	// Set to one if the server is shutting down. This will cause all
 	// non replica related requests to be closed via a header that the
 	// server returns. This will ensure that clients disconnect and find
@@ -116,7 +122,7 @@ type server struct {
 	shuttingDown int32
 
 	// The logger that is used for all internal logging.
-	log *logging.Logger
+	log *slog.Logger
 }
 
 // Returns the address that this server will listen on.
@@ -458,7 +464,7 @@ func (s *server) httpDelete(r *request.Request) {
 	ns.PrimaryACL.Assert(r)
 
 	// Perform the delete.
-	if err := ns.Storage.ReplicaQueueDelete(parts[2]); err != nil {
+	if err := ns.Storage.ReplicaQueueDelete(r.Context, parts[2]); err != nil {
 		if _, ok := err.(storage.ErrReplicaNotFound); ok {
 			panic(&request.HTTPError{
 				Status:   http.StatusNotFound,
@@ -517,11 +523,12 @@ func (s *server) httpGet(r *request.Request, parts []string) {
 
 	// We need to setup the readConfig object that will pass information
 	// into the Read implementation.
-	log := s.settings.Logger.NewChild().
-		AddField("namespace", parts[1]).
-		AddField("id", parts[2]).
-		AddField("start", strconv.FormatUint(start, 10)).
-		AddField("length", strconv.FormatUint(uint64(length), 10))
+	log := s.settings.Logger.With(
+		sloghelper.String("namespace", parts[1]),
+		sloghelper.String("id", parts[2]),
+		sloghelper.Uint64("start", start),
+		sloghelper.Uint32("length", length),
+	)
 	rc := readConfig{
 		nameSpace: parts[1],
 		id:        parts[2],
@@ -544,7 +551,7 @@ func (s *server) httpGet(r *request.Request, parts []string) {
 	}
 
 	// Attempt to fetch the data from the Storage server.
-	content, err := ns.Storage.Read(&rc)
+	content, err := ns.Storage.Read(r.Context, &rc)
 	if err != nil {
 		if _, ok := err.(storage.ErrNotPossible); ok {
 			r.Header().Add("Content-Type", "text/plain")
@@ -627,7 +634,7 @@ func (s *server) httpHeartBeat(r *request.Request) {
 	ns.PrimaryACL.Assert(r)
 
 	// Perform the heart beat.
-	if err := ns.Storage.ReplicaHeartBeat(parts[2]); err != nil {
+	if err := ns.Storage.ReplicaHeartBeat(r.Context, parts[2]); err != nil {
 		if _, ok := err.(storage.ErrReplicaNotFound); ok {
 			panic(&request.HTTPError{
 				Status:   http.StatusNotFound,
@@ -713,7 +720,7 @@ func (s *server) httpInitialize(r *request.Request) {
 	ns.PrimaryACL.Assert(r)
 
 	// Perform the initializing.
-	if err := ns.Storage.ReplicaInitialize(parts[2]); err != nil {
+	if err := ns.Storage.ReplicaInitialize(r.Context, parts[2]); err != nil {
 		panic(err)
 	}
 
@@ -756,7 +763,7 @@ func (s *server) httpInsert(r *request.Request, parts []string) {
 		Length: r.Request.ContentLength,
 		Tracer: r.Tracer(),
 	}
-	id, err := ns.Storage.Insert(&data)
+	id, err := ns.Storage.Insert(r.Context, &data)
 	if err != nil {
 		panic(err)
 	}
@@ -802,7 +809,7 @@ func (s *server) httpReplicate(r *request.Request) {
 	}
 
 	// Perform the replicate call.
-	if err := ns.Storage.ReplicaReplicate(parts[2], &rc); err != nil {
+	if err := ns.Storage.ReplicaReplicate(r.Context, parts[2], &rc); err != nil {
 		if _, ok := err.(storage.ErrReplicaNotFound); ok {
 			panic(&request.HTTPError{
 				Status:   http.StatusNotFound,
@@ -995,5 +1002,5 @@ func (s *server) httpMetrics(r *request.Request) {
 // Gets the current certificate from the CertLoader and returns it to the
 // tls.Listen interface.
 func (s *server) cert(*tls.ClientHelloInfo) (*tls.Certificate, error) {
-	return s.settings.TLSCerts.Cert()
+	return s.settings.TLSCerts.Cert(s.context)
 }

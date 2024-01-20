@@ -1,6 +1,7 @@
 package workqueue
 
 import (
+	"context"
 	"sync"
 )
 
@@ -19,7 +20,7 @@ type workList struct {
 	// A list of functions that are stored in this workList object. This
 	// will be used in a rolling list to ensure that items are read
 	// in order.
-	work [64]func()
+	work [64]func(context.Context)
 
 	// A pointer to the next workList object in the WorkQueue.
 	next *workList

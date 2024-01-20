@@ -1,11 +1,10 @@
 package config
 
 import (
-	"bufio"
-	"fmt"
-	"os"
+	"context"
+	"log/slog"
 
-	"github.com/liquidgecka/blobby/internal/logging"
+	"github.com/liquidgecka/blobby/internal/sloghelper"
 )
 
 var (
@@ -30,42 +29,48 @@ type log struct {
 	// The name passed in to validate() initially.
 	name string
 
-	// A reference to the logging.Logger that was created for this
+	// A reference to the slog.Logger that was created for this
 	// log operation.
-	logger *logging.Logger
+	logger *slog.Logger
 
 	// A reference to the Rotator that is used to manage the output for
 	// this log configuration.
-	rotator *logging.Rotator
+	rotator *sloghelper.Rotator
+
+	// Controls the log level that is currently being
+	// logged.
+	leveler *sloghelper.Leveler
 }
 
-func (l *log) initLogging() error {
-	var err error
-	var output *logging.Output
+func (l *log) initLogging(ctx context.Context) error {
+	if l.File != nil {
+		var err error
+		l.rotator, err = sloghelper.NewRotator(ctx, *l.File)
+		if err != nil {
+			return err
+		}
+	}
+	l.leveler = &sloghelper.Leveler{}
+	if l.Debug != nil && *l.Debug {
+		l.leveler.SetLevel(slog.LevelDebug)
+	}
 	switch *l.Format {
 	case "plain":
-		l.rotator, output, err = logging.NewPlainRotator(*l.File)
+		l.logger = slog.New(slog.NewTextHandler(
+			l.rotator,
+			&slog.HandlerOptions{
+				Level: l.leveler,
+			}))
 	case "json":
-		l.rotator, output, err = logging.NewJSONRotator(*l.File)
+		l.logger = slog.New(slog.NewJSONHandler(
+			l.rotator,
+			&slog.HandlerOptions{
+				Level: l.leveler,
+			}))
 	}
-	if err != nil {
-		return fmt.Errorf(
-			"%s had an error initializing: %s",
-			l.name,
-			err.Error())
-	}
-	if console != nil && *console {
-		output.TeeOutput(logging.NewANSIOutput(bufio.NewWriter(os.Stdout)))
-	}
-	if &l.top.Log == l {
-		l.logger = logging.NewLogger(output)
-	} else {
-		l.logger = l.top.Log.logger.NewChild()
-		l.logger.SetOutput(output)
-	}
-	if (debug != nil && *debug) || *l.Debug {
-		l.logger.EnableDebug()
-	}
+	//	if console != nil && *console {
+	//		output.TeeOutput(logging.NewANSIOutput(bufio.NewWriter(os.Stdout)))
+	//	}
 	return nil
 }
 

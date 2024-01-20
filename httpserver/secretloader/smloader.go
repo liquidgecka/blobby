@@ -1,6 +1,7 @@
 package secretloader
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -37,7 +38,7 @@ func (s *secretsManagerLoader) CacheDuration() time.Duration {
 }
 
 // Fetch the raw data from the secret.
-func (s *secretsManagerLoader) Fetch() ([]byte, error) {
+func (s *secretsManagerLoader) Fetch(ctx context.Context) ([]byte, error) {
 	ses := s.profiles.GetSession(s.profileName)
 	if ses == nil {
 		return nil, fmt.Errorf(
@@ -69,7 +70,7 @@ func (s *secretsManagerLoader) Fetch() ([]byte, error) {
 
 // Returns true if the data in the cache needs to be updated before it can
 // be used.
-func (s *secretsManagerLoader) IsStale() bool {
+func (s *secretsManagerLoader) IsStale(ctx context.Context) bool {
 	if !s.stale || time.Now().After(s.expires) {
 		return true
 	}
@@ -77,16 +78,16 @@ func (s *secretsManagerLoader) IsStale() bool {
 }
 
 // Returns true if this secret should be loaded at startup.
-func (s *secretsManagerLoader) PreLoad() bool {
+func (s *secretsManagerLoader) PreLoad(ctx context.Context) bool {
 	return s.preload
 }
 
 // Returns true if the data is allowed to be served stale.
-func (s *secretsManagerLoader) Stale() bool {
+func (s *secretsManagerLoader) Stale(ctx context.Context) bool {
 	return s.stale
 }
 
 // Returns the URL used to generate this Loader.
-func (s *secretsManagerLoader) URL() string {
+func (s *secretsManagerLoader) URL(ctx context.Context) string {
 	return s.sourceURL
 }

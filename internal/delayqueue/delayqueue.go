@@ -1,6 +1,7 @@
 package delayqueue
 
 import (
+	"context"
 	"sync"
 	"time"
 )
@@ -48,7 +49,7 @@ type DelayQueue struct {
 }
 
 // Alters the given token to be in the list with the given fields.
-func (d *DelayQueue) Alter(tok *Token, t time.Time, f func()) {
+func (d *DelayQueue) Alter(tok *Token, t time.Time, f func(context.Context)) {
 	d.lock.Lock()
 	defer d.lock.Unlock()
 
@@ -189,9 +190,9 @@ func (d *DelayQueue) process() {
 			// Capture the next item and run the function associated with it.
 			tok := d.next
 			if tok.inLine {
-				tok.f()
+				tok.f(context.Background()) // FIXME
 			} else {
-				go tok.f()
+				go tok.f(context.Background()) // FIXME
 			}
 
 			// Remove the next item from the list.

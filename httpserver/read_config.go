@@ -1,10 +1,10 @@
 package httpserver
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/liquidgecka/blobby/httpserver/access"
-	"github.com/liquidgecka/blobby/internal/logging"
 	"github.com/liquidgecka/blobby/storage/fid"
 )
 
@@ -18,7 +18,7 @@ type readConfig struct {
 	length    uint32
 	machine   uint32
 	localOnly bool
-	logger    *logging.Logger
+	logger    *slog.Logger
 	acl       *access.ACL
 	request   *http.Request
 }
@@ -55,7 +55,7 @@ func (r *readConfig) LocalOnly() bool {
 	return r.localOnly
 }
 
-func (r *readConfig) Logger() *logging.Logger {
+func (r *readConfig) Logger() *slog.Logger {
 	return r.logger
 }
 

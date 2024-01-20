@@ -1,6 +1,7 @@
 package delayqueue
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -20,7 +21,7 @@ func BenchmarkAlter(b *testing.B) {
 		d.Alter(
 			&tokens[i],
 			time.Now().Add(time.Millisecond),
-			func() {})
+			func(context.Context) {})
 	}
 
 	// Runs through b.N iterations resetting the time on each
@@ -30,7 +31,7 @@ func BenchmarkAlter(b *testing.B) {
 		d.Alter(
 			&tokens[i%len(tokens)],
 			time.Now().Add(time.Millisecond),
-			func() {})
+			func(context.Context) {})
 	}
 	b.StopTimer()
 }
@@ -49,7 +50,7 @@ func TestDelayQueue_Fires(t *testing.T) {
 	d.Alter(
 		tok,
 		time.Now().Add(time.Second/10),
-		func() { close(done) })
+		func(context.Context) { close(done) })
 	timer := time.NewTimer(time.Second * 5)
 	select {
 	case <-timer.C:
@@ -72,7 +73,7 @@ func TestDelayQueue_Ordering(t *testing.T) {
 		d.Alter(
 			&Token{inLine: true},
 			start.Add(time.Millisecond*time.Duration(i)),
-			func() {
+			func(context.Context) {
 				series <- instanceI
 			},
 		)
@@ -117,7 +118,7 @@ func TestDelayQueue_Alter(t *testing.T) {
 	d.Alter(
 		&tOne,
 		stepOne,
-		func() {
+		func(context.Context) {
 			panic("STEP ONE SHOULDN'T EVER FIRE")
 		})
 	T.Equal(tOne.inList, true)
@@ -132,7 +133,7 @@ func TestDelayQueue_Alter(t *testing.T) {
 	d.Alter(
 		&tTwo,
 		stepOne.Add(time.Minute),
-		func() {
+		func(context.Context) {
 			panic("STEP TWO SHOULDN'T EVER FIRE.")
 		})
 	T.Equal(tTwo.inList, true)
@@ -150,7 +151,7 @@ func TestDelayQueue_Alter(t *testing.T) {
 	d.Alter(
 		&tZero,
 		stepOne.Add(-time.Minute),
-		func() {
+		func(context.Context) {
 			panic("STEP ZERO SHOULDN'T EVER FIRE.")
 		})
 	T.Equal(tZero.inList, true)
@@ -169,7 +170,7 @@ func TestDelayQueue_Alter(t *testing.T) {
 	d.Alter(
 		&tOne,
 		time.Now(),
-		func() {
+		func(context.Context) {
 			fire <- struct{}{}
 		})
 	select {
@@ -190,7 +191,7 @@ func TestDelayQueue_Alter(t *testing.T) {
 	d.Alter(
 		&tTwo,
 		time.Now(),
-		func() {
+		func(context.Context) {
 			fire <- struct{}{}
 		})
 	select {
@@ -209,7 +210,7 @@ func TestDelayQueue_Alter(t *testing.T) {
 	d.Alter(
 		&tZero,
 		time.Now(),
-		func() {
+		func(context.Context) {
 			fire <- struct{}{}
 		})
 	select {
@@ -233,7 +234,7 @@ func TestDelayQueue_Cancel(t *testing.T) {
 	d.Start()
 	defer d.Stop()
 
-	f := func() {
+	f := func(context.Context) {
 		panic("NOT EXPECTED")
 	}
 

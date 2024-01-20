@@ -1,11 +1,13 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"net"
 
 	"github.com/liquidgecka/blobby/httpserver/access"
 	"github.com/liquidgecka/blobby/httpserver/secretloader"
+	"github.com/liquidgecka/blobby/internal/sloghelper"
 )
 
 var (
@@ -158,28 +160,27 @@ func (a *acl) access() *access.ACL {
 	}
 }
 
-func (a *acl) initLogging() {
+func (a *acl) initLogging(ctx context.Context) {
 	if a.basicAuth != nil {
-		a.basicAuth.Logger = a.top.Log.logger.
-			NewChild().
-			AddField("component", "htpasswd-loader").
-			AddField("url", *a.BasicAuthHTPasswdURL)
+		a.basicAuth.Logger = a.top.Log.logger.With(
+			sloghelper.String("component", "htpasswd-loader"),
+			sloghelper.String("url", *a.BasicAuthHTPasswdURL))
 	}
 }
 
-func (a *acl) preLoad() error {
+func (a *acl) preLoad(ctx context.Context) error {
 	if a != nil && a.basicAuth != nil {
-		if err := a.basicAuth.PreLoad(); err != nil {
+		if err := a.basicAuth.PreLoad(ctx); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (a *acl) startRefresher(stop <-chan struct{}) {
+func (a *acl) startRefresher(ctx context.Context) {
 	if a != nil {
 		if a.basicAuth != nil {
-			a.basicAuth.StartRefresher(stop)
+			a.basicAuth.StartRefresher(ctx)
 		}
 	}
 }
