@@ -34,10 +34,28 @@ func TestBackOff_Failure(t *testing.T) {
 func TestBackOff_Healthy(t *testing.T) {
 	T := testlib.NewT(t)
 	defer T.Finish()
-	b := BackOff{}
+	b := BackOff{
+		Period: time.Millisecond * 50,
+		X:      time.Millisecond * 10,
+	}
 	T.Equal(b.Healthy(), true)
-	b.length += 1
+	b.Failure()
 	T.Equal(b.Healthy(), false)
+
+	// After expiry, Healthy should prune and return true even without calling Wait
+	b.queue[0] = time.Now().Add(-time.Hour)
+	T.Equal(b.Healthy(), true)
+}
+
+func TestBackOff_Allocate_ZeroSafety(t *testing.T) {
+	T := testlib.NewT(t)
+	defer T.Finish()
+
+	b := BackOff{}
+	// Should not panic when X or Period is zero
+	b.Failure()
+	T.Equal(len(b.queue), 1)
+	T.Equal(b.Wait(), time.Duration(0))
 }
 
 func TestBackOff_Wait_Allocate(t *testing.T) {

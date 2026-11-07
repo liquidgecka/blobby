@@ -47,9 +47,23 @@ func (b *BackOff) Failure() {
 	}
 }
 
+func (b *BackOff) prune(cutoff time.Time) {
+	for b.length > 0 {
+		qlen := len(b.queue)
+		index := (b.end + qlen - b.length) % qlen
+		if b.queue[index].After(cutoff) {
+			break
+		}
+		b.length -= 1
+	}
+}
+
 func (b *BackOff) Healthy() bool {
 	b.lock.Lock()
 	defer b.lock.Unlock()
+	if b.length > 0 && len(b.queue) > 0 {
+		b.prune(time.Now().Add(-b.Period))
+	}
 	return b.length == 0
 }
 
@@ -61,15 +75,7 @@ func (b *BackOff) Wait() time.Duration {
 	if b.queue == nil {
 		b.allocate()
 	}
-	cutoff := time.Now().Add(-b.Period)
-	for b.length > 0 {
-		qlen := len(b.queue)
-		index := (b.end + qlen - b.length) % qlen
-		if b.queue[index].After(cutoff) {
-			break
-		}
-		b.length -= 1
-	}
+	b.prune(time.Now().Add(-b.Period))
 	delay := b.X * time.Duration(b.length-1)
 	if delay < 0 {
 		return 0
@@ -81,5 +87,12 @@ func (b *BackOff) Wait() time.Duration {
 }
 
 func (b *BackOff) allocate() {
-	b.queue = make([]time.Time, int(b.Period/b.X))
+	size := 1
+	if b.X > 0 && b.Period > 0 {
+		size = int(b.Period / b.X)
+		if size < 1 {
+			size = 1
+		}
+	}
+	b.queue = make([]time.Time, size)
 }
