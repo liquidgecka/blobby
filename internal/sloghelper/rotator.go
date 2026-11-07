@@ -57,13 +57,10 @@ func (r *Rotator) Rotate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	oldfd := func() *os.File {
-		r.lock.Lock()
-		defer r.lock.Unlock()
-		oldfd := r.fd
-		r.fd = newfd
-		return oldfd
-	}()
+	r.lock.Lock()
+	oldfd := r.fd
+	r.fd = newfd
+	r.lock.Unlock()
 	if oldfd != nil {
 		if err := oldfd.Close(); err != nil {
 			if r.log != nil {
