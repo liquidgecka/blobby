@@ -415,6 +415,7 @@ func (r *replica) Replicate(
 		r.setState(ctx, replicaStateFailed)
 		return err
 	}
+	defer hsum.Free()
 
 	// Copy the data into the file.
 	buffer := [32 * 1024]byte{}

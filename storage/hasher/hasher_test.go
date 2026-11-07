@@ -3,6 +3,7 @@ package hasher
 import (
 	"bytes"
 	"crypto/md5"
+	"io"
 	"io/ioutil"
 	"testing"
 
@@ -219,4 +220,27 @@ func TestHasher_Hash_HighwayHash(t *testing.T) {
 		T.ExpectSuccess(err)
 	}
 	T.Equal(h.Hash(), "hh=qxRxHq0KnCM")
+}
+
+func BenchmarkHasher_Computer(b *testing.B) {
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		h, _ := Computer("hh", io.Discard)
+		_, _ = h.Write([]byte("some data to hash"))
+		_ = h.Hash()
+		h.Free()
+	}
+}
+
+func BenchmarkHasher_Validator(b *testing.B) {
+	hashStr := "hh=fHbHLx3cSLE"
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		h, _ := Validator(hashStr, io.Discard)
+		_, _ = h.Write([]byte("test"))
+		_ = h.Check()
+		h.Free()
+	}
 }

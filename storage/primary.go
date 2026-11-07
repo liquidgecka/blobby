@@ -181,6 +181,7 @@ func (p *primary) Insert(ctx context.Context, data *InsertData) (string, error) 
 		atomic.AddInt64(&p.storage.metrics.InternalInsertErrors, 1)
 		panic(err)
 	}
+	defer hsum.Free()
 
 	// Keep the starting offset of the data that is being written to
 	// disk. This is used to set the start maker and to roll back to
