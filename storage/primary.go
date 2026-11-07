@@ -557,7 +557,7 @@ func (p *primary) compress(ctx context.Context) {
 	}
 
 	// Copy data from the source file into the gzipper.
-	buffer := [4096]byte{}
+	buffer := [64 * 1024]byte{}
 	if _, err = io.CopyBuffer(zipper, p.fd, buffer[:]); err != nil {
 		p.log.Error(
 			"Error generating the compressed data file.",

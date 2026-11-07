@@ -161,7 +161,7 @@ func (r *replica) Compress(ctx context.Context) {
 	}
 
 	// Copy data from the source file into the gzipper.
-	buffer := [4096]byte{}
+	buffer := [64 * 1024]byte{}
 	if _, err = io.CopyBuffer(zipper, r.fd, buffer[:]); err != nil {
 		r.log.LogAttrs(
 			ctx,
