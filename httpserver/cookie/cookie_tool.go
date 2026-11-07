@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"hash/fnv"
 )
 
 // Handles the encrypting and decrypting of data in cookies.
@@ -20,11 +19,18 @@ type CookieTool struct {
 	AESKeys func(context.Context) ([]cipher.Block, error)
 }
 
+const (
+	fnvOffset32 = 2166136261
+	fnvPrime32  = 16777619
+)
+
 // Common hashing function..
 func fnvHash(dest []byte, source []byte) {
-	f := fnv.New32a()
-	f.Write(source)
-	sum := f.Sum32()
+	var sum uint32 = fnvOffset32
+	for _, b := range source {
+		sum ^= uint32(b)
+		sum *= fnvPrime32
+	}
 	dest[0] = byte(sum & 0xFF)
 	dest[1] = byte((sum >> 8) & 0xFF)
 	dest[2] = byte((sum >> 16) & 0xFF)

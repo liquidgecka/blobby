@@ -213,3 +213,38 @@ func TestCookieTool_Decode(t *testing.T) {
 	T.Equal(bsCalled, true)
 	T.Equal(decryptCalls, len(source))
 }
+
+func BenchmarkFnvHash(b *testing.B) {
+	data := []byte("some cookie data payload to hash with fnv1a")
+	var dest [4]byte
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		fnvHash(dest[:], data)
+	}
+}
+
+func BenchmarkCookieDecode(b *testing.B) {
+	want := struct {
+		Test1 string `json:"t1"`
+		Test2 string `json:"t2"`
+	}{Test1: "test1", Test2: "test2"}
+	aesRaw := [32]byte{}
+	a, _ := aes.NewCipher(aesRaw[:])
+	aesKeys := []cipher.Block{a}
+	ct := CookieTool{
+		AESKeys: func(context.Context) ([]cipher.Block, error) {
+			return aesKeys, nil
+		},
+	}
+	raw, _ := ct.Encode(context.Background(), &want)
+	var have struct {
+		Test1 string `json:"t1"`
+		Test2 string `json:"t2"`
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = ct.Decode(context.Background(), raw, &have)
+	}
+}
