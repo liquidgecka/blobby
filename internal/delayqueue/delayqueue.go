@@ -45,7 +45,8 @@ type DelayQueue struct {
 	list *Token
 
 	// A channel used to signal that the DelayQueue processor needs to stop.
-	stop chan struct{}
+	stop     chan struct{}
+	stopOnce sync.Once
 }
 
 // Alters the given token to be in the list with the given fields.
@@ -146,12 +147,22 @@ func (d *DelayQueue) Start() {
 
 // Stops the DelayQueue processing.
 func (d *DelayQueue) Stop() {
-	close(d.stop)
+	d.stopOnce.Do(func() {
+		close(d.stop)
+		if d.timer != nil {
+			d.timer.Stop()
+		}
+	})
 }
 
 // Finds the next lowest item in the list and sets the next pointer to it.
 func (d *DelayQueue) findNext() {
 	next := d.list
+	if next == nil {
+		d.next = nil
+		d.longSleepTimer()
+		return
+	}
 	for p := next.next; p != nil; p = p.next {
 		if p.t.Before(next.t) {
 			next = p
@@ -232,7 +243,11 @@ func (d *DelayQueue) resetTimer() {
 		default:
 		}
 	}
-	d.timer.Reset(time.Until(d.next.t))
+	delay := time.Until(d.next.t)
+	if delay < 0 {
+		delay = 0
+	}
+	d.timer.Reset(delay)
 }
 
 // Called to ensure that the timer is setup to sleep for a really long time.

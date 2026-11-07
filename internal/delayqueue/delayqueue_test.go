@@ -38,6 +38,17 @@ func BenchmarkAlter(b *testing.B) {
 
 // High level tests of multiple elements of functionality.
 
+func TestDelayQueue_Stop_Idempotent(t *testing.T) {
+	T := testlib.NewT(t)
+	defer T.Finish()
+
+	d := DelayQueue{}
+	d.Start()
+	d.Stop()
+	// Second Stop call should be a no-op and not panic
+	d.Stop()
+}
+
 func TestDelayQueue_Fires(t *testing.T) {
 	T := testlib.NewT(t)
 	defer T.Finish()
