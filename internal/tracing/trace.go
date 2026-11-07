@@ -89,12 +89,14 @@ func (t *Trace) String() string {
 		return ""
 	}
 	s := strings.Builder{}
+	s.Grow(256)
 	s.WriteString(t.name)
 	s.WriteByte(' ')
 	s.WriteString(t.end.Sub(t.start).String())
 	s.WriteByte('\n')
 	if t.children != nil {
-		stack := make([]*Trace, 1, 10)
+		var stackBuf [16]*Trace
+		stack := stackBuf[:1]
 		stack[0] = t.children
 		for level := 0; level >= 0; {
 			if stack[level] == nil {

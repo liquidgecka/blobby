@@ -46,3 +46,23 @@ func TestTrace_NilSafety(t *testing.T) {
 	T.Equal(nilTrace.NewChild("child"), (*Trace)(nil))
 	T.Equal(nilTrace.String(), "")
 }
+
+func BenchmarkTrace_String(b *testing.B) {
+	fix := func(t *Trace) *Trace {
+		t.end = t.start.Add(time.Millisecond)
+		return t
+	}
+	top := fix(New())
+	c1 := fix(top.NewChild("c1"))
+	c1_1 := fix(c1.NewChild("c1_1"))
+	fix(c1_1.NewChild("c1_1_1"))
+	fix(c1.NewChild("c1_2"))
+	fix(top.NewChild("c2"))
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = top.String()
+	}
+	top.Free()
+}
