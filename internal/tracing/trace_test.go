@@ -33,4 +33,16 @@ func TestTrace_String(t *testing.T) {
 	fix(c1.NewChild("c1_2"))
 	fix(top.NewChild("c2"))
 	T.Equal(top.String(), expected)
+	top.Free()
+}
+
+func TestTrace_NilSafety(t *testing.T) {
+	T := testlib.NewT(t)
+	defer T.Finish()
+
+	var nilTrace *Trace
+	nilTrace.End()
+	nilTrace.Free()
+	T.Equal(nilTrace.NewChild("child"), (*Trace)(nil))
+	T.Equal(nilTrace.String(), "")
 }

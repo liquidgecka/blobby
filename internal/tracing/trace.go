@@ -47,6 +47,9 @@ func (t *Trace) End() {
 }
 
 func (t *Trace) Free() {
+	if t == nil {
+		return
+	}
 	t.free()
 	*t = Trace{}
 	tracePool.Put(t)
@@ -82,6 +85,9 @@ func (t *Trace) NewChild(name string) *Trace {
 }
 
 func (t *Trace) String() string {
+	if t == nil {
+		return ""
+	}
 	s := strings.Builder{}
 	s.WriteString(t.name)
 	s.WriteByte(' ')
