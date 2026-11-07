@@ -439,8 +439,8 @@ func (p *primary) Open(ctx context.Context) bool {
 			defer wg.Done()
 			err := r.Initialize(p.settings.NameSpace, p.fidStr)
 			if err != nil {
-				i := int(atomic.AddInt32(&errCount, 1)) - 1
-				attrs[i] = sloghelper.Error(
+				ei := int(atomic.AddInt32(&errCount, 1)) - 1
+				attrs[ei] = sloghelper.Error(
 					"replica-"+strconv.FormatInt(int64(i), 10)+"-error",
 					err)
 				p.failedRemotes[i] = true
