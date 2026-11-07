@@ -43,6 +43,29 @@ var readConfigPool = sync.Pool{
 	},
 }
 
+// Splits a URL path by '/' without heap allocation using a fixed-size stack buffer.
+// Falls back to strings.Split if the number of path segments exceeds the buffer.
+func splitPath(path string, buf *[8]string) []string {
+	n := 0
+	start := 0
+	for i := 0; i < len(path); i++ {
+		if path[i] == '/' {
+			if n >= len(buf) {
+				return strings.Split(path, "/")
+			}
+			buf[n] = path[start:i]
+			n++
+			start = i + 1
+		}
+	}
+	if n >= len(buf) {
+		return strings.Split(path, "/")
+	}
+	buf[n] = path[start:]
+	n++
+	return buf[:n]
+}
+
 const (
 	// A list of characters that are allowed in namespace names.
 	validNameSpaceChars = "" +
@@ -231,7 +254,8 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		// TODO: READ is deprecated but for now we keep it working so that
 		// users have time to transition. In the future this will be used
 		// for proxying Blobby GET requests between servers.
-		parts := strings.Split(ir.Request.URL.Path, "/")
+		var partsBuf [8]string
+		parts := splitPath(ir.Request.URL.Path, &partsBuf)
 		s.httpGet(ir, parts)
 	case "REPLICATE":
 		s.httpReplicate(ir)
@@ -255,7 +279,8 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 func (s *server) httpGetMuxer(ir *request.Request) {
 	// We need to capture any internal or administrative URLS before
 	// processing the generic Method based URLs that customers will use.
-	parts := strings.Split(ir.Request.URL.Path, "/")
+	var partsBuf [8]string
+	parts := splitPath(ir.Request.URL.Path, &partsBuf)
 	if strings.HasPrefix(ir.Request.URL.Path, "/_") {
 		switch parts[1] {
 		case "_debug":
@@ -331,7 +356,8 @@ func (s *server) httpGetMuxer(ir *request.Request) {
 func (s *server) httpPostMuxer(ir *request.Request) {
 	// We need to capture any internal or administrative URLS before
 	// processing the generic Method based URLs that customers will use.
-	parts := strings.Split(ir.Request.URL.Path, "/")
+	var partsBuf [8]string
+	parts := splitPath(ir.Request.URL.Path, &partsBuf)
 	if strings.HasPrefix(ir.Request.URL.Path, "/_") {
 		switch parts[1] {
 		case "_login":
@@ -365,7 +391,8 @@ func (s *server) httpPostMuxer(ir *request.Request) {
 // BLASTREAD requests are sent by a Blast Path server to get a specific
 // portion of the primary file.
 func (s *server) httpBlastRead(r *request.Request) {
-	parts := strings.Split(r.Request.URL.Path, "/")
+	var partsBuf [8]string
+	parts := splitPath(r.Request.URL.Path, &partsBuf)
 	if len(parts) != 5 {
 		panic(&request.HTTPError{
 			Status:   http.StatusBadRequest,
@@ -433,7 +460,8 @@ func (s *server) httpBlastRead(r *request.Request) {
 // BLASTSTATUS requests are sent by a Blast Path server to get the current
 // list of supported files so that they can be fetched as needed.
 func (s *server) httpBlastStatus(r *request.Request) {
-	parts := strings.Split(r.Request.URL.Path, "/")
+	var partsBuf [8]string
+	parts := splitPath(r.Request.URL.Path, &partsBuf)
 	if len(parts) != 2 {
 		panic(&request.HTTPError{
 			Status:   http.StatusBadRequest,
@@ -462,7 +490,8 @@ func (s *server) httpBlastStatus(r *request.Request) {
 // DELETE requests are sent by a Blobby server to another Blobby server
 // in order to delete a replica file from disk.
 func (s *server) httpDelete(r *request.Request) {
-	parts := strings.Split(r.Request.URL.Path, "/")
+	var partsBuf [8]string
+	parts := splitPath(r.Request.URL.Path, &partsBuf)
 	if len(parts) != 3 {
 		panic(&request.HTTPError{
 			Status:   http.StatusBadRequest,
@@ -633,7 +662,8 @@ func (s *server) httpGetHealth(r *request.Request) {
 // HEARTBEAT requests are sent by a Blobby server to another Blobby server
 // in order to mark a replica file as not being orphaned.
 func (s *server) httpHeartBeat(r *request.Request) {
-	parts := strings.Split(r.Request.URL.Path, "/")
+	var partsBuf [8]string
+	parts := splitPath(r.Request.URL.Path, &partsBuf)
 	if len(parts) != 3 {
 		panic(&request.HTTPError{
 			Status:   http.StatusBadRequest,
@@ -684,7 +714,8 @@ func (s *server) httpID(r *request.Request) {
 		r.Header().Add("Connection", "close")
 	}
 
-	parts := strings.Split(r.Request.URL.Path, "/")
+	var partsBuf [8]string
+	parts := splitPath(r.Request.URL.Path, &partsBuf)
 	if len(parts) != 4 {
 		panic(&request.HTTPError{
 			Status:   http.StatusBadRequest,
@@ -719,7 +750,8 @@ func (s *server) httpInitialize(r *request.Request) {
 	}
 
 	// See if the URL is even a valid replica path.
-	parts := strings.Split(r.Request.URL.Path, "/")
+	var partsBuf [8]string
+	parts := splitPath(r.Request.URL.Path, &partsBuf)
 	if len(parts) != 3 {
 		panic(&request.HTTPError{
 			Status:   http.StatusBadRequest,
@@ -798,7 +830,8 @@ func (s *server) httpReplicate(r *request.Request) {
 	// REPLICATE requests are sent by a Blobby server to another Blobby server.
 	// The append data into a replica file. As such the path will require
 	// a namespace, and a file name element.
-	parts := strings.Split(r.Request.URL.Path, "/")
+	var partsBuf [8]string
+	parts := splitPath(r.Request.URL.Path, &partsBuf)
 	if len(parts) != 3 {
 		panic(&request.HTTPError{
 			Status:   http.StatusBadRequest,
