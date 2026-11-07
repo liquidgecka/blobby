@@ -130,3 +130,17 @@ func TestBackOff_Wait(t *testing.T) {
 	T.Equal(b.Wait(), time.Duration(0))
 	T.Equal(b.length, 0)
 }
+
+func BenchmarkBackOff(b *testing.B) {
+	bo := BackOff{
+		Period: time.Second,
+		X:      time.Millisecond,
+		Max:    time.Second,
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		bo.Failure()
+		_ = bo.Wait()
+	}
+}

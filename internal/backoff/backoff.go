@@ -40,7 +40,10 @@ func (b *BackOff) Failure() {
 	}
 	qlen := len(b.queue)
 	b.queue[b.end] = time.Now()
-	b.end = (b.end + 1) % qlen
+	b.end++
+	if b.end >= qlen {
+		b.end = 0
+	}
 	b.length += 1
 	if b.length > qlen {
 		b.length = qlen
@@ -48,9 +51,15 @@ func (b *BackOff) Failure() {
 }
 
 func (b *BackOff) prune(cutoff time.Time) {
+	qlen := len(b.queue)
+	if qlen == 0 {
+		return
+	}
 	for b.length > 0 {
-		qlen := len(b.queue)
-		index := (b.end + qlen - b.length) % qlen
+		index := b.end - b.length
+		if index < 0 {
+			index += qlen
+		}
 		if b.queue[index].After(cutoff) {
 			break
 		}
