@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/liquidgecka/blobby/httpserver/request"
@@ -28,6 +29,14 @@ import (
 
 // Used for tracking requests that are received by this server.
 var requestID uint64
+
+// Buffer pool for streaming response data.
+var copyBufferPool = sync.Pool{
+	New: func() interface{} {
+		b := make([]byte, 64*1024)
+		return &b
+	},
+}
 
 const (
 	// A list of characters that are allowed in namespace names.
@@ -413,7 +422,9 @@ func (s *server) httpBlastRead(r *request.Request) {
 	// Success!
 	r.Header().Add("Content-type", "text/plain")
 	r.WriteHeader(http.StatusOK)
-	io.Copy(r, content)
+	bufPtr := copyBufferPool.Get().(*[]byte)
+	io.CopyBuffer(r, content, *bufPtr)
+	copyBufferPool.Put(bufPtr)
 }
 
 // BLASTSTATUS requests are sent by a Blast Path server to get the current
@@ -582,7 +593,9 @@ func (s *server) httpGet(r *request.Request, parts []string) {
 	// Success!
 	r.Header().Add("Content-type", "text/plain")
 	r.WriteHeader(http.StatusOK)
-	io.Copy(r, content)
+	bufPtr := copyBufferPool.Get().(*[]byte)
+	io.CopyBuffer(r, content, *bufPtr)
+	copyBufferPool.Put(bufPtr)
 }
 
 // Returns health status of the server. This is useful for load balancing
