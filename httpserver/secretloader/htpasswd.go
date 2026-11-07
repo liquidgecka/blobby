@@ -186,17 +186,13 @@ func (h *HTPasswd) load(
 // Reloads the secret on an interval until the context is canceled. This
 // is expected to be run as a goroutine.
 func (h *HTPasswd) refresher(dur time.Duration, ctx context.Context) {
-	timer := time.NewTimer(dur)
-	defer func() {
-		if !timer.Stop() {
-			<-timer.C
-		}
-	}()
+	ticker := time.NewTicker(dur)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-timer.C:
+		case <-ticker.C:
 		}
 		h.Logger.LogAttrs(
 			ctx,

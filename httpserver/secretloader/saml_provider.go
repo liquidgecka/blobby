@@ -316,17 +316,13 @@ func (s *SAMLProvider) load(ctx context.Context) error {
 // Reloads the secret on an interval until the stop channel is closed. This
 // is expected to be run as a goroutine.
 func (s *SAMLProvider) refresher(dur time.Duration, ctx context.Context) {
-	timer := time.NewTimer(dur)
-	defer func() {
-		if !timer.Stop() {
-			<-timer.C
-		}
-	}()
+	ticker := time.NewTicker(dur)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-timer.C:
+		case <-ticker.C:
 		}
 		s.Certificate.Logger.LogAttrs(
 			ctx,
