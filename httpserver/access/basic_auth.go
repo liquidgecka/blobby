@@ -50,7 +50,7 @@ func (b *BasicAuth) assert(ir *request.Request) {
 }
 
 func (b *BasicAuth) proxy(source, dest *http.Request) {
-	for _, value := range source.Header.Values("WWW-Authenticate") {
-		dest.Header.Add("WWW-Authenticate", value)
+	for _, value := range source.Header.Values("Authorization") {
+		dest.Header.Add("Authorization", value)
 	}
 }
