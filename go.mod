@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	bou.ke/monkey v1.0.2
-	github.com/aws/aws-sdk-go v1.49.23
+	github.com/aws/aws-sdk-go v1.55.8
 	github.com/crewjam/saml v0.4.5
 	github.com/liquidgecka/testlib v1.0.0
 	github.com/minio/highwayhash v1.0.4
