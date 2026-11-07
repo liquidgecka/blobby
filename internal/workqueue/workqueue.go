@@ -100,47 +100,39 @@ func (w *WorkQueue) process() {
 		w.wg.Done()
 	}()
 	for {
-		// Get the next item from the queue.
-		next, ok := func() (func(context.Context), bool) {
-			w.lock.Lock()
-			defer w.lock.Unlock()
-			for w.next == w.last && w.nextIndex == w.lastIndex {
-				return nil, false
-			}
-
-			// There is an item available. Consume it.
-			next := w.next.work[w.nextIndex]
-			w.next.work[w.nextIndex] = nil
-
-			// And move the queue pointer over one, releasing it if needed.
-			w.nextIndex += 1
-			if w.nextIndex >= len(w.next.work) {
-				w.nextIndex = 0
-				tmp := w.next
-				w.next = w.next.next
-				tmp.next = nil
-				wlPool.Put(tmp)
-			}
-
-			// And lastly we handle a special case. If the read pointer and
-			// the write pointer are equal and pointing at the same
-			// list then we can set them back to zero so we don't waste
-			// space at the start of the list.
-			if w.next == w.last && w.nextIndex == w.lastIndex {
-				w.nextIndex = 0
-				w.lastIndex = 0
-			}
-
-			// Decrement the length.
-			w.length -= 1
-
-			// And return.
-			return next, true
-		}()
-		if !ok {
+		w.lock.Lock()
+		if w.next == w.last && w.nextIndex == w.lastIndex {
+			w.lock.Unlock()
 			return
-		} else {
-			next(context.Background()) // FIXME
 		}
+
+		// There is an item available. Consume it.
+		next := w.next.work[w.nextIndex]
+		w.next.work[w.nextIndex] = nil
+
+		// And move the queue pointer over one, releasing it if needed.
+		w.nextIndex += 1
+		if w.nextIndex >= len(w.next.work) {
+			w.nextIndex = 0
+			tmp := w.next
+			w.next = w.next.next
+			tmp.next = nil
+			wlPool.Put(tmp)
+		}
+
+		// And lastly we handle a special case. If the read pointer and
+		// the write pointer are equal and pointing at the same
+		// list then we can set them back to zero so we don't waste
+		// space at the start of the list.
+		if w.next == w.last && w.nextIndex == w.lastIndex {
+			w.nextIndex = 0
+			w.lastIndex = 0
+		}
+
+		// Decrement the length.
+		w.length -= 1
+		w.lock.Unlock()
+
+		next(context.Background()) // FIXME
 	}
 }

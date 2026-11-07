@@ -154,3 +154,13 @@ func TestWorkQueue_Wait(t *testing.T) {
 	w.Wait()
 	T.Equal(run, int64(50))
 }
+
+func BenchmarkWorkQueue(b *testing.B) {
+	w := New(4)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		w.Insert(func(context.Context) {})
+	}
+	w.Wait()
+}
