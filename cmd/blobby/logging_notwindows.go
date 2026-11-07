@@ -20,14 +20,16 @@ func SetupRotation(ctx context.Context) {
 		slog.LevelDebug,
 		"Starting signal handler for SIGHUP.")
 	go func(c chan os.Signal) {
-		for range schan {
+		for range c {
 			for _, r := range Rotators {
-				if err := r.Rotate(ctx); err != nil {
-					log.LogAttrs(
-						ctx,
-						slog.LevelWarn,
-						"Log rotation failed.",
-						sloghelper.Error("error", err))
+				if r != nil {
+					if err := r.Rotate(ctx); err != nil {
+						log.LogAttrs(
+							ctx,
+							slog.LevelWarn,
+							"Log rotation failed.",
+							sloghelper.Error("error", err))
+					}
 				}
 			}
 			log.LogAttrs(
