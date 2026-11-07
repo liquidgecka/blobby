@@ -72,7 +72,7 @@ func uploadToS3(
 	// is correct. We can also get the file length here which helps
 	// with validation as well.
 	m := md5.New()
-	buffer := [1024]byte{}
+	buffer := [64 * 1024]byte{}
 	if n, err := io.CopyBuffer(m, fd, buffer[:]); err != nil {
 		l.LogAttrs(
 			ctx,
