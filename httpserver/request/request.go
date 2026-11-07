@@ -57,7 +57,7 @@ func New(
 
 // Logs the access log for this request to the given logger.
 func (r *Request) AccessLog(l *slog.Logger) {
-	duration := time.Now().Sub(r.start) / time.Millisecond
+	duration := time.Since(r.start)
 	l.LogAttrs(
 		r.Context,
 		slog.LevelInfo,
@@ -68,7 +68,7 @@ func (r *Request) AccessLog(l *slog.Logger) {
 		sloghelper.String("method", r.Request.Method),
 		sloghelper.String("url", r.Request.URL.String()),
 		sloghelper.Int64("bytes-read", r.bodyWrapper.size),
-		sloghelper.Duration("request-duration-ms", duration),
+		sloghelper.Duration("request-duration", duration),
 	)
 }
 
