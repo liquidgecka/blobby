@@ -123,8 +123,8 @@ func (c *CookieTool) Encode(
 	bs := cipher.BlockSize()
 	add := bs - (out.Len() % bs)
 	if add > 0 && add < bs {
-		addBytes := make([]byte, add)
-		out.Write(addBytes)
+		pad := [16]byte{}
+		out.Write(pad[:add])
 	}
 	raw := out.Bytes()
 	rawLen := len(raw)
