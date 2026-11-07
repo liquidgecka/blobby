@@ -4,11 +4,6 @@ import (
 	"strconv"
 )
 
-// A simple wrapper to make formatting easier to parse.
-func atoi(u uint64) string {
-	return strconv.FormatUint(u, 10)
-}
-
 // Returns a human readable version of the bytes. This will reduce a large
 // value into a smaller one (eg 123001 into 123k).
 func Bytes(size uint64) string {
@@ -125,16 +120,17 @@ func Bytes(size uint64) string {
 		label = "EB"
 	}
 
-	if dec == 0 {
-		return atoi(whole) + label
-	} else {
-		decStr := atoi(dec)
-		decStrLen := len(decStr)
-		if decLen == 2 && decStrLen == 1 {
-			decStr = "0" + decStr
-		} else if decStrLen == 2 && decStr[1] == '0' {
-			decStr = decStr[0:1]
+	var buf [32]byte
+	b := strconv.AppendUint(buf[:0], whole, 10)
+	if dec != 0 {
+		b = append(b, '.')
+		if decLen == 2 && dec < 10 {
+			b = append(b, '0')
+		} else if dec >= 10 && dec%10 == 0 {
+			dec /= 10
 		}
-		return atoi(whole) + "." + decStr + label
+		b = strconv.AppendUint(b, dec, 10)
 	}
+	b = append(b, label...)
+	return string(b)
 }

@@ -91,3 +91,13 @@ func TestBytes(t *testing.T) {
 	T.Equal(Bytes(10100000000000000000), "10.1EB")
 	T.Equal(Bytes(18446744073709551615), "18.4EB")
 }
+
+func BenchmarkBytes(b *testing.B) {
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = Bytes(1010000000)
+		_ = Bytes(1010)
+		_ = Bytes(999)
+	}
+}
