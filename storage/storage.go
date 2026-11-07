@@ -48,12 +48,12 @@ type Storage struct {
 	// A mapping of each primaries "FID" string to the primary object
 	// associated with it.
 	primaries     map[string]*primary
-	primariesLock sync.Mutex
+	primariesLock sync.RWMutex
 
 	// A mapping of each replicas "FID" string to the replica object
 	// associated with it.
 	replicas     map[string]*replica
-	replicasLock sync.Mutex
+	replicasLock sync.RWMutex
 
 	// Settings associated with this Storage object.
 	settings Settings
@@ -145,8 +145,8 @@ func (s *Storage) BlastPathRead(
 	// Start by getting the primary associated with this fid. If it doesn't
 	// exist then bail out quickly.
 	primary := func() *primary {
-		s.primariesLock.Lock()
-		defer s.primariesLock.Unlock()
+		s.primariesLock.RLock()
+		defer s.primariesLock.RUnlock()
 		return s.primaries[fid]
 	}()
 	if primary == nil {
@@ -208,8 +208,8 @@ func (s *Storage) BlastPathStatus(out io.Writer) {
 	// Generate the array in a sub function so that we can limit the amount
 	// of time that we are holding the primariesLock.
 	array := func() (array []blastpath.Record) {
-		s.primariesLock.Lock()
-		defer s.primariesLock.Unlock()
+		s.primariesLock.RLock()
+		defer s.primariesLock.RUnlock()
 		array = make([]blastpath.Record, len(s.primaries))
 		i := 0
 		for _, p := range s.primaries {
@@ -250,8 +250,8 @@ func (s *Storage) DebugID(out io.Writer, id string) {
 	// Lastly we check the status of this fid to see if its currently doing
 	// anything locally.
 	ps, ok := func() (int32, bool) {
-		s.primariesLock.Lock()
-		defer s.primariesLock.Unlock()
+		s.primariesLock.RLock()
+		defer s.primariesLock.RUnlock()
 		if p, ok := s.primaries[fidStr]; ok {
 			return p.state, true
 		} else {
@@ -263,8 +263,8 @@ func (s *Storage) DebugID(out io.Writer, id string) {
 		fmt.Fprintf(out, "in the %s state.\n", primaryStateStrings[ps])
 	}
 	rs, ok := func() (int32, bool) {
-		s.replicasLock.Lock()
-		defer s.replicasLock.Unlock()
+		s.replicasLock.RLock()
+		defer s.replicasLock.RUnlock()
 		if r, ok := s.replicas[fidStr]; ok {
 			return r.state, true
 		} else {
@@ -284,8 +284,8 @@ func (s *Storage) GetMetrics() (m metrics.Metrics) {
 	queuedForUpload := time.Now()
 	m.QueuedInserts = int64(s.waiting.Waiting())
 	func() {
-		s.primariesLock.Lock()
-		defer s.primariesLock.Unlock()
+		s.primariesLock.RLock()
+		defer s.primariesLock.RUnlock()
 		for _, p := range s.primaries {
 			switch {
 			case p.firstInsert == (time.Time{}):
@@ -300,8 +300,8 @@ func (s *Storage) GetMetrics() (m metrics.Metrics) {
 		}
 	}()
 	func() {
-		s.replicasLock.Lock()
-		defer s.replicasLock.Unlock()
+		s.replicasLock.RLock()
+		defer s.replicasLock.RUnlock()
 		for _, r := range s.replicas {
 			switch {
 			case r.queuedForUpload == (time.Time{}):
@@ -414,8 +414,8 @@ func (s *Storage) Read(
 	// directly.
 	fn, ok := func() (string, bool) {
 		fn, ok := func() (string, bool) {
-			s.primariesLock.Lock()
-			defer s.primariesLock.Unlock()
+			s.primariesLock.RLock()
+			defer s.primariesLock.RUnlock()
 			if p, ok := s.primaries[rc.FIDString()]; ok && p.fd != nil {
 				return p.fd.Name(), true
 			} else {
@@ -426,8 +426,8 @@ func (s *Storage) Read(
 			return fn, ok
 		}
 		fn, ok = func() (string, bool) {
-			s.replicasLock.Lock()
-			defer s.replicasLock.Unlock()
+			s.replicasLock.RLock()
+			defer s.replicasLock.RUnlock()
 			if r, ok := s.replicas[rc.FIDString()]; ok && r.fd != nil {
 				return r.fd.Name(), true
 			} else {
@@ -661,8 +661,8 @@ func (s *Storage) Read(
 func (s *Storage) ReplicaHeartBeat(ctx context.Context, fn string) error {
 	s.metrics.ReplicaHeartBeats.IncTotal()
 	repl := func(fn string) *replica {
-		s.replicasLock.Lock()
-		defer s.replicasLock.Unlock()
+		s.replicasLock.RLock()
+		defer s.replicasLock.RUnlock()
 		return s.replicas[fn]
 	}(fn)
 	if repl == nil {
@@ -737,8 +737,8 @@ func (s *Storage) ReplicaReplicate(
 ) error {
 	s.metrics.ReplicaReplicates.IncTotal()
 	repl := func(fn string) *replica {
-		s.replicasLock.Lock()
-		defer s.replicasLock.Unlock()
+		s.replicasLock.RLock()
+		defer s.replicasLock.RUnlock()
 		return s.replicas[fn]
 	}(fn)
 	if repl == nil {
@@ -758,8 +758,8 @@ func (s *Storage) ReplicaReplicate(
 func (s *Storage) ReplicaQueueDelete(ctx context.Context, fn string) error {
 	s.metrics.ReplicaQueueDeletes.IncTotal()
 	repl := func(fn string) *replica {
-		s.replicasLock.Lock()
-		defer s.replicasLock.Unlock()
+		s.replicasLock.RLock()
+		defer s.replicasLock.RUnlock()
 		return s.replicas[fn]
 	}(fn)
 	if repl == nil {
@@ -871,8 +871,8 @@ func (s *Storage) Status(out io.Writer) {
 	// Get a list of primaries. Since this requires a lock we need to do
 	// this in a sub function.
 	primaries := func() primarySlice {
-		s.primariesLock.Lock()
-		defer s.primariesLock.Unlock()
+		s.primariesLock.RLock()
+		defer s.primariesLock.RUnlock()
 		primaries := make(primarySlice, len(s.primaries))
 		i := 0
 		for _, p := range s.primaries {
@@ -897,8 +897,8 @@ func (s *Storage) Status(out io.Writer) {
 	// Get a list of replicas. Since this requires a lock we need to do
 	// this in a sub function.
 	replicas := func() replicaSlice {
-		s.replicasLock.Lock()
-		defer s.replicasLock.Unlock()
+		s.replicasLock.RLock()
+		defer s.replicasLock.RUnlock()
 		replicas := make(replicaSlice, len(s.replicas))
 		i := 0
 		for _, p := range s.replicas {
