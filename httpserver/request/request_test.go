@@ -55,3 +55,16 @@ func BenchmarkRequestNew(b *testing.B) {
 		_ = r
 	}
 }
+
+func BenchmarkRequestPool(b *testing.B) {
+	w := httptest.NewRecorder()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	req := httptest.NewRequest("GET", "/namespace/id123456789", nil)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		r := Get(w, req, logger)
+		Put(r)
+	}
+}

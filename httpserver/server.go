@@ -171,18 +171,13 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// We want to capture the response in order to put it in the log. As
 	// such we actually wrap the ResponseWriter in an internal implementation
 	// that captures details.
-	ir := request.New(w, req, s.log)
-	if s.settings.EnableTracing {
-		ir.AddTracer()
-	}
-	w = &ir
+	ir := request.Get(w, req, s.log)
+	defer request.Put(ir)
 
 	// Use the above object to generate a log line at the end of the
 	// request.
 	if s.settings.AccessLogger != nil {
-		defer func() {
-			ir.AccessLog(s.settings.AccessLogger)
-		}()
+		defer ir.AccessLog(s.settings.AccessLogger)
 	}
 
 	// If there is an error presented via a panic we want to handle that
@@ -191,8 +186,13 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// over that path.
 	defer ir.PanicHandler(s.ReplyWithError)
 
-	// Make sure the trace ends.
-	defer ir.Tracer().End()
+	// Enable and end tracing only if configured.
+	if s.settings.EnableTracing {
+		ir.AddTracer()
+		defer ir.Tracer().End()
+	}
+
+	w = ir
 
 	// Add a shutting down header so any caller that needs to know is aware
 	// that the server will terminate soon.
@@ -207,35 +207,35 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// different implementation paths as they also implement internal
 	// functionality like health checks.
 	case "GET":
-		s.httpGetMuxer(&ir)
+		s.httpGetMuxer(ir)
 	case "POST":
-		s.httpPostMuxer(&ir)
+		s.httpPostMuxer(ir)
 
 	// Protocol level operations. The underlying protocol uses methods to
 	// define which operation is being used rather than trying to map into
 	// a REST like semantic. This is purely for simplicity and to prevent
 	// users from accidentally calling legitimate operations by accident.
 	case "DELETE":
-		s.httpDelete(&ir)
+		s.httpDelete(ir)
 	case "HEARTBEAT":
-		s.httpHeartBeat(&ir)
+		s.httpHeartBeat(ir)
 	case "INITIALIZE":
-		s.httpInitialize(&ir)
+		s.httpInitialize(ir)
 	case "READ":
 		// TODO: READ is deprecated but for now we keep it working so that
 		// users have time to transition. In the future this will be used
 		// for proxying Blobby GET requests between servers.
 		parts := strings.Split(ir.Request.URL.Path, "/")
-		s.httpGet(&ir, parts)
+		s.httpGet(ir, parts)
 	case "REPLICATE":
-		s.httpReplicate(&ir)
+		s.httpReplicate(ir)
 
 	// Blast Path requests which are used to dump whole files or limited
 	// ranges out of the server before they get uploaded to S3.
 	case "BLASTSTATUS":
-		s.httpBlastStatus(&ir)
+		s.httpBlastStatus(ir)
 	case "BLASTGET":
-		s.httpBlastRead(&ir)
+		s.httpBlastRead(ir)
 
 	// Otherwise its an unsupported method.
 	default:

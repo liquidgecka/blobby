@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -14,7 +15,14 @@ import (
 	"github.com/liquidgecka/blobby/internal/tracing"
 )
 
-var nextRequestID uint64
+var (
+	nextRequestID uint64
+	requestPool   = sync.Pool{
+		New: func() interface{} {
+			return new(Request)
+		},
+	}
+)
 
 type Request struct {
 	Context     context.Context
@@ -30,19 +38,24 @@ type Request struct {
 	baseLog     *slog.Logger
 }
 
-func New(
+// Get acquires a Request from the pool and initializes it.
+func Get(
 	w http.ResponseWriter,
 	req *http.Request,
 	l *slog.Logger,
-) (
-	r Request,
-) {
+) *Request {
+	r := requestPool.Get().(*Request)
 	r.ID = atomic.AddUint64(&nextRequestID, 1)
 	r.Context = req.Context()
 	r.Request = req
 	r.start = time.Now()
 	r.bodyWrapper.in = req.Body
+	r.bodyWrapper.size = 0
 	r.response = w
+	r.replyBytes = 0
+	r.statusCode = 0
+	r.trace = nil
+	r.Log = nil
 	r.baseLog = l
 	if l != nil && l.Enabled(r.Context, slog.LevelDebug) {
 		r.Log = l.With(sloghelper.Uint64("request-id", r.ID))
@@ -57,6 +70,43 @@ func New(
 			sloghelper.String("uri", uri))
 	}
 	req.Body = &r.bodyWrapper
+	return r
+}
+
+// Put cleans up and returns a Request to the pool.
+func Put(r *Request) {
+	if r == nil {
+		return
+	}
+	r.Request = nil
+	r.response = nil
+	r.bodyWrapper.in = nil
+	r.Log = nil
+	r.baseLog = nil
+	r.Context = nil
+	if r.trace != nil {
+		r.trace.Free()
+		r.trace = nil
+	}
+	*r = Request{}
+	requestPool.Put(r)
+}
+
+func New(
+	w http.ResponseWriter,
+	req *http.Request,
+	l *slog.Logger,
+) (
+	r Request,
+) {
+	ir := Get(w, req, l)
+	r = *ir
+	// Detach pointers before recycling temporary instance
+	ir.Request = nil
+	ir.response = nil
+	ir.bodyWrapper.in = nil
+	*ir = Request{}
+	requestPool.Put(ir)
 	return
 }
 
