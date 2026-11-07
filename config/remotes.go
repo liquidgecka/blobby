@@ -59,24 +59,28 @@ type remote struct {
 
 func (r *remote) Remote() storage.Remote {
 	client := r.top.Client.HTTPClient()
-	if r.VerifyHost != nil {
-		client.Transport = &http.Transport{
-			// The default MaxIdleConns is 2 per host, but since this client
-			// will only ever talk to a single host we want to allow far more
-			// where possible. If we are going to initialize a connection for
-			// an ephemeral operation its likely that we will need it again
-			// soon, and if not then we want to just let it naturally
-			// timeout and die rather than closing it by force.
-			MaxIdleConns:        *r.MaxIdleConns,
-			MaxIdleConnsPerHost: *r.MaxIdleConns,
-			IdleConnTimeout:     time.Second * 90,
-			DisableCompression:  true,
-			TLSClientConfig: &tls.Config{
-				ServerName:         *r.VerifyHost,
-				InsecureSkipVerify: *r.InsecureSkipVerify,
-			},
-		}
+	transport := &http.Transport{
+		// The default MaxIdleConns is 2 per host, but since this client
+		// will only ever talk to a single host we want to allow far more
+		// where possible. If we are going to initialize a connection for
+		// an ephemeral operation its likely that we will need it again
+		// soon, and if not then we want to just let it naturally
+		// timeout and die rather than closing it by force.
+		MaxIdleConns:        *r.MaxIdleConns,
+		MaxIdleConnsPerHost: *r.MaxIdleConns,
+		IdleConnTimeout:     time.Second * 90,
+		DisableCompression:  true,
 	}
+	if *r.TLS {
+		tc := &tls.Config{
+			InsecureSkipVerify: *r.InsecureSkipVerify,
+		}
+		if r.VerifyHost != nil {
+			tc.ServerName = *r.VerifyHost
+		}
+		transport.TLSClientConfig = tc
+	}
+	client.Transport = transport
 	useS := ""
 	if *r.TLS {
 		useS = "s"
