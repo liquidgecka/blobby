@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/pkg/errors"
-
 	"github.com/liquidgecka/blobby/storage"
 )
 
@@ -41,18 +39,13 @@ func (r *Remote) Delete(namespace, fn string) error {
 			fn),
 		nilReader{})
 	if err != nil {
-		return errors.WithMessage(
-			err,
-			"Error generating DELETE request.",
-		)
+		return fmt.Errorf("Error generating DELETE request: %w", err)
 	}
 
 	// Perform the request.
 	resp, err := r.Client.Do(request)
 	if err != nil {
-		return errors.Wrap(
-			err,
-			"Error sending a request to remote: ")
+		return fmt.Errorf("Error sending a request to remote: %w", err)
 	}
 
 	// Ensure that the Body of the request is read so the connection
@@ -81,18 +74,13 @@ func (r *Remote) HeartBeat(namespace, fn string) (bool, error) {
 			fn),
 		nilReader{})
 	if err != nil {
-		return true, errors.Wrap(
-			err,
-			"Error generating HEARTBEAT request: ",
-		)
+		return true, fmt.Errorf("Error generating HEARTBEAT request: %w", err)
 	}
 
 	// Perform the request.
 	resp, err := r.Client.Do(request)
 	if err != nil {
-		return true, errors.Wrap(
-			err,
-			"Error sending a request to remote: ")
+		return true, fmt.Errorf("Error sending a request to remote: %w", err)
 	}
 
 	// Ensure that the Body of the request is read so the connection
@@ -121,18 +109,13 @@ func (r *Remote) Initialize(namespace, fn string) error {
 			fn),
 		nilReader{})
 	if err != nil {
-		return errors.WithMessage(
-			err,
-			"Error generating INITIALIZE request.",
-		)
+		return fmt.Errorf("Error generating INITIALIZE request: %w", err)
 	}
 
 	// Perform the request.
 	resp, err := r.Client.Do(request)
 	if err != nil {
-		return errors.Wrap(
-			err,
-			"Error sending a request to remote: ")
+		return fmt.Errorf("Error sending a request to remote: %w", err)
 	}
 
 	// Ensure that the Body of the request is read so the connection
@@ -165,10 +148,7 @@ func (r *Remote) Read(rc storage.ReadConfig) (io.ReadCloser, error) {
 			rc.ID()),
 		nilReader{})
 	if err != nil {
-		return nil, errors.Wrap(
-			err,
-			"Error generating READ request: ",
-		)
+		return nil, fmt.Errorf("Error generating READ request: %w", err)
 	}
 
 	f, ok := rc.Context().(func(r *http.Request))
@@ -183,9 +163,7 @@ func (r *Remote) Read(rc storage.ReadConfig) (io.ReadCloser, error) {
 	// Perform the request.
 	resp, err := r.Client.Do(request)
 	if err != nil {
-		return nil, errors.Wrap(
-			err,
-			"Error sending a request to remote: ")
+		return nil, fmt.Errorf("Error sending a request to remote: %w", err)
 	}
 
 	// Check the status code.
@@ -229,10 +207,7 @@ func (r *Remote) Replicate(
 			rc.FileName()),
 		rc.GetBody())
 	if err != nil {
-		return false, errors.WithMessage(
-			err,
-			"Error generating REPLICATE request.",
-		)
+		return false, fmt.Errorf("Error generating REPLICATE request: %w", err)
 	}
 
 	// Add the request headers.
@@ -245,9 +220,7 @@ func (r *Remote) Replicate(
 	// Perform the request.
 	resp, err := r.Client.Do(request)
 	if err != nil {
-		return false, errors.Wrap(
-			err,
-			"Error sending a request to remote: ")
+		return false, fmt.Errorf("Error sending a request to remote: %w", err)
 	}
 
 	// Ensure that the body of the request is fully read.

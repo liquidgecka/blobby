@@ -2,14 +2,13 @@ package request
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
 	"strconv"
 	"sync/atomic"
 	"time"
-
-	"github.com/pkg/errors"
 
 	"github.com/liquidgecka/blobby/internal/sloghelper"
 	"github.com/liquidgecka/blobby/internal/tracing"
@@ -176,7 +175,7 @@ func (r *Request) Uint64Header(h string) uint64 {
 		panic(&HTTPError{
 			Status:   http.StatusBadRequest,
 			Response: "Invalid '" + h + "' header (expected an integer).",
-			Err:      errors.Wrap(err, "Invalid '"+h+"' header: "),
+			Err:      fmt.Errorf("Invalid '%s' header: %w", h, err),
 		})
 	}
 	return value
