@@ -85,6 +85,11 @@ func (w *WorkQueue) Len() int {
 	return w.length
 }
 
+// Waits for all running work queue worker goroutines to complete.
+func (w *WorkQueue) Wait() {
+	w.wg.Wait()
+}
+
 // Processes items from the queue. This will work until there is nothing left
 // in the queue and then it will shut down.
 func (w *WorkQueue) process() {

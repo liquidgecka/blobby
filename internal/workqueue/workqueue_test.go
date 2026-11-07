@@ -139,3 +139,18 @@ func TestWorkQueue_Parallel(t *testing.T) {
 	// And verify that all the tests ran.
 	T.Equal(run, int64(1000000))
 }
+
+func TestWorkQueue_Wait(t *testing.T) {
+	T := testlib.NewT(t)
+	defer T.Finish()
+
+	w := New(2)
+	run := int64(0)
+	for i := 0; i < 50; i++ {
+		w.Insert(func(context.Context) {
+			atomic.AddInt64(&run, 1)
+		})
+	}
+	w.Wait()
+	T.Equal(run, int64(50))
+}
