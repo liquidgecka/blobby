@@ -7,7 +7,7 @@ require (
 	github.com/aws/aws-sdk-go v1.49.23
 	github.com/crewjam/saml v0.4.5
 	github.com/liquidgecka/testlib v1.0.0
-	github.com/minio/highwayhash v1.0.2
+	github.com/minio/highwayhash v1.0.4
 	github.com/pelletier/go-toml v1.9.5
 	github.com/tg123/go-htpasswd v1.2.2
 )
@@ -23,5 +23,5 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/russellhaering/goxmldsig v1.1.0 // indirect
 	golang.org/x/crypto v0.17.0 // indirect
-	golang.org/x/sys v0.15.0 // indirect
+	golang.org/x/sys v0.21.0 // indirect
 )
