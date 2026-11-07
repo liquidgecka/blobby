@@ -57,15 +57,19 @@ func New(
 // Logs the access log for this request to the given logger.
 func (r *Request) AccessLog(l *slog.Logger) {
 	duration := time.Since(r.start)
+	uri := r.Request.RequestURI
+	if uri == "" && r.Request.URL != nil {
+		uri = r.Request.URL.String()
+	}
 	l.LogAttrs(
 		r.Context,
 		slog.LevelInfo,
 		"request complete.",
-		sloghelper.String("start", r.start.String()),
+		slog.Time("start", r.start),
 		sloghelper.Uint64("request-id", r.ID),
 		sloghelper.Int("status", r.statusCode),
 		sloghelper.String("method", r.Request.Method),
-		sloghelper.String("url", r.Request.URL.String()),
+		sloghelper.String("url", uri),
 		sloghelper.Int64("bytes-read", r.bodyWrapper.size),
 		sloghelper.Duration("request-duration", duration),
 	)
