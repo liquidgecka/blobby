@@ -715,7 +715,7 @@ func (p *primary) deleteRemotes(ctx context.Context) {
 			ctx,
 			slog.LevelWarn,
 			"Error deleting from remotes.",
-			attrs...)
+			attrs[0:errCount]...)
 	} else {
 		p.log.LogAttrs(
 			ctx,
