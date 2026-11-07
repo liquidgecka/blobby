@@ -1,13 +1,10 @@
-// build: windows
+//go:build windows
 
 package main
 
 import (
 	"context"
 	"log/slog"
-	"os"
-	"os/signal"
-	"syscall"
 )
 
 func SetupRotation(ctx context.Context) {
