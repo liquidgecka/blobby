@@ -399,6 +399,11 @@ func (s *server) httpBlastRead(r *request.Request) {
 			r.WriteHeader(http.StatusBadRequest)
 			r.Write([]byte("Can not fetch objects from a compressed source."))
 			return
+		} else if _, ok := err.(*storage.ErrNotPossible); ok {
+			r.Header().Add("Content-Type", "text/plain")
+			r.WriteHeader(http.StatusBadRequest)
+			r.Write([]byte("Can not fetch objects from a compressed source."))
+			return
 		} else {
 			panic(err)
 		}
