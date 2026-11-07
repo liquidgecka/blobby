@@ -8,12 +8,11 @@ import (
 // This is used for keeping track of files that are waiting for actions
 // to be taken (written to, uploaded, deleted, etc)
 type list struct {
-	head     *primary
-	length   int
-	waiting  int
-	lock     sync.Mutex
-	cond     sync.Cond
-	headCond sync.Cond
+	head    *primary
+	length  int
+	waiting int
+	lock    sync.Mutex
+	cond    sync.Cond
 }
 
 // Obtain the next idle file and return it. This supports passing in a
@@ -37,10 +36,6 @@ func (l *list) Get(check func()) *primary {
 	l.length -= 1
 	l.waiting -= 1
 	next.next = nil
-	if l.headCond.L == nil {
-		l.headCond.L = &l.lock
-	}
-	l.headCond.Broadcast()
 	return next
 }
 
@@ -59,12 +54,6 @@ func (l *list) Put(p *primary) {
 	p.next = *np
 	*np = p
 	l.signal()
-	if l.head == p {
-		if l.headCond.L == nil {
-			l.headCond.L = &l.lock
-		}
-		l.headCond.Broadcast()
-	}
 }
 
 // Removes an item from the list and returns true if the removal
