@@ -33,11 +33,19 @@ type Rotator struct {
 func NewRotator(ctx context.Context, file string) (*Rotator, error) {
 	r := &Rotator{
 		fileName: file,
+		log:      slog.Default(),
 	}
 	if err := r.Rotate(ctx); err != nil {
 		return nil, err
 	}
 	return r, nil
+}
+
+// Sets the logger used to report internal rotator errors.
+func (r *Rotator) SetLogger(l *slog.Logger) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	r.log = l
 }
 
 // Opens the file on disk.
@@ -58,11 +66,13 @@ func (r *Rotator) Rotate(ctx context.Context) error {
 	}()
 	if oldfd != nil {
 		if err := oldfd.Close(); err != nil {
-			r.log.LogAttrs(
-				ctx,
-				slog.LevelError,
-				"Error closing the old file.",
-				Error("error", err))
+			if r.log != nil {
+				r.log.LogAttrs(
+					ctx,
+					slog.LevelError,
+					"Error closing the old file.",
+					Error("error", err))
+			}
 		}
 	}
 
