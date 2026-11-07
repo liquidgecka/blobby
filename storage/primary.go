@@ -70,7 +70,9 @@ var primaryStateStrings = map[int32]string{
 // at the top level so we can prevent allocations for each replica every
 // time the log line is generated.
 var (
-	replicaIsShuttingDownError = errors.New("Replica is shutting down.")
+	replicaIsShuttingDownError   = errors.New("Replica is shutting down.")
+	errRemotePreviouslyFailed    = errors.New("Remote failed on a previous step.")
+	errRemotePreviouslyFailedMsg = errors.New("Remote previously failed.")
 )
 
 type primary struct {
@@ -129,6 +131,7 @@ type primary struct {
 	// remote has failed.
 	remotes       []Remote
 	failedRemotes []bool
+	replicateErrs []error
 
 	// If this primary has had an error of any sort then this will be set
 	// to true to indicate that it is now unhealthy.
@@ -293,11 +296,16 @@ func (p *primary) Insert(ctx context.Context, data *InsertData) (string, error) 
 		namespace: p.settings.NameSpace,
 		start:     start,
 	}
+	if len(p.replicateErrs) < len(p.remotes) {
+		p.replicateErrs = make([]error, len(p.remotes))
+	} else {
+		clear(p.replicateErrs[:len(p.remotes)])
+	}
 	wg := sync.WaitGroup{}
-	attrs := make([]slog.Attr, len(p.remotes))
-	errs := make([]error, len(p.remotes))
-	errCount := int32(0)
-	replicaTrace := trace.NewChild("storage/(primary.Insert):replicate")
+	var replicaTrace *tracing.Trace
+	if trace != nil {
+		replicaTrace = trace.NewChild("storage/(primary.Insert):replicate")
+	}
 	replicateStart := time.Now()
 	shuttingDown := int32(0)
 	for i, remote := range p.remotes {
@@ -305,37 +313,43 @@ func (p *primary) Insert(ctx context.Context, data *InsertData) (string, error) 
 			// The remote was previously marked as failed and as such
 			// we need to basically automatically mark its slot as failed
 			// so the insert fails.
-			ei := atomic.AddInt32(&errCount, 1) - 1
-			errs[ei] = fmt.Errorf("Remote failed on a previous step.")
-			attrs[int(ei)] = sloghelper.Error(
-				"replica-"+strconv.Itoa(i)+"-error",
-				fmt.Errorf("Remote previously failed."))
+			p.replicateErrs[i] = errRemotePreviouslyFailed
 			continue
 		}
-		is := strconv.Itoa(i)
-		t := replicaTrace.NewChild(
-			"storage/(primary.Insert):replicate(replia-" + is + ")",
-		)
+		var t *tracing.Trace
+		if replicaTrace != nil {
+			t = replicaTrace.NewChild(
+				"storage/(primary.Insert):replicate(replica-" + strconv.Itoa(i) + ")",
+			)
+		}
 		wg.Add(1)
-		go func(i int, is string, remote Remote, trace *tracing.Trace) {
+		go func(i int, remote Remote, trace *tracing.Trace) {
 			defer wg.Done()
-			defer trace.End()
+			if trace != nil {
+				defer trace.End()
+			}
 			if shutDown, err := remote.Replicate(&rc); err != nil {
-				ei := atomic.AddInt32(&errCount, 1) - 1
-				errs[ei] = fmt.Errorf("%s: %s", remote.String(), err.Error())
-				attrs[int(ei)] = sloghelper.Error(
-					"replica-"+is+"-error",
-					err)
+				p.replicateErrs[i] = err
 			} else if shutDown {
 				atomic.AddInt32(&shuttingDown, 1)
 			}
-		}(i, is, remote, t)
+		}(i, remote, t)
 	}
 	wg.Wait()
-	replicaTrace.End()
+	if replicaTrace != nil {
+		replicaTrace.End()
+	}
 	atomic.AddUint64(
 		&p.storage.metrics.PrimaryInsertReplicateNanoseconds,
 		uint64(time.Since(replicateStart)))
+
+	// Check if any errors occurred during replication.
+	errCount := 0
+	for _, err := range p.replicateErrs[:len(p.remotes)] {
+		if err != nil {
+			errCount++
+		}
+	}
 
 	// If replication failed to a host then we need to handle that.
 	if errCount > 0 {
@@ -344,15 +358,33 @@ func (p *primary) Insert(ctx context.Context, data *InsertData) (string, error) 
 		// committed to disk already we can not roll back here, as such we
 		// need to truncate and immediately move to the Uploading state.
 		atomic.AddInt64(&p.storage.metrics.InternalInsertErrors, 1)
+		attrs := make([]slog.Attr, 0, errCount)
+		errs := make([]error, 0, errCount)
+		for i, err := range p.replicateErrs[:len(p.remotes)] {
+			if err != nil {
+				is := strconv.Itoa(i)
+				if p.remotes[i] == nil {
+					attrs = append(attrs, sloghelper.Error(
+						"replica-"+is+"-error",
+						errRemotePreviouslyFailedMsg))
+					errs = append(errs, errRemotePreviouslyFailed)
+				} else {
+					attrs = append(attrs, sloghelper.Error(
+						"replica-"+is+"-error",
+						err))
+					errs = append(errs, fmt.Errorf("%s: %s", p.remotes[i].String(), err.Error()))
+				}
+			}
+		}
 		p.log.LogAttrs(
 			ctx,
 			slog.LevelWarn,
 			"Replication failed.",
-			attrs[0:errCount]...)
+			attrs...)
 		truncate(false)
 		return "", fmt.Errorf(
 			"Replication failed: %w",
-			errors.Join(errs[0:errCount]...))
+			errors.Join(errs...))
 	} else {
 		p.log.Debug("Replicas accepted the update.")
 	}
