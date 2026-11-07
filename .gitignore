@@ -6,5 +6,4 @@ cmd/blobby/blobby
 cmd/loadtest/loadtest
 
 # Ignore vendor files.
-vendor/*
-!vendor/modules.txt
+vendor/
