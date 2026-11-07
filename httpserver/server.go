@@ -37,6 +37,12 @@ var copyBufferPool = sync.Pool{
 	},
 }
 
+var readConfigPool = sync.Pool{
+	New: func() interface{} {
+		return new(readConfig)
+	},
+}
+
 const (
 	// A list of characters that are allowed in namespace names.
 	validNameSpaceChars = "" +
@@ -547,29 +553,23 @@ func (s *server) httpGet(r *request.Request, parts []string) {
 	} else {
 		log = s.settings.Logger
 	}
-	rc := readConfig{
-		nameSpace: parts[1],
-		id:        parts[2],
-		fid:       f,
-		fidStr:    f.String(),
-		start:     start,
-		length:    length,
-		machine:   f.Machine(),
-		acl:       ns.ReadACL,
-		request:   r.Request,
-		logger:    log,
-	}
-
-	// If the request has the "Blobby-Local-Only" header set then we need
-	// to configure the readConfig to ony perform local operations. This
-	// is done when the request is being forwarded from the initial server
-	// to read from the local file if present.
-	if r.Request.Header.Get("Blobby-Local-Only") != "" {
-		rc.localOnly = true
-	}
+	rc := readConfigPool.Get().(*readConfig)
+	rc.nameSpace = parts[1]
+	rc.id = parts[2]
+	rc.fid = f
+	rc.fidStr = f.String()
+	rc.start = start
+	rc.length = length
+	rc.machine = f.Machine()
+	rc.acl = ns.ReadACL
+	rc.request = r.Request
+	rc.logger = log
+	rc.localOnly = (r.Request.Header.Get("Blobby-Local-Only") != "")
 
 	// Attempt to fetch the data from the Storage server.
-	content, err := ns.Storage.Read(r.Context, &rc)
+	content, err := ns.Storage.Read(r.Context, rc)
+	*rc = readConfig{}
+	readConfigPool.Put(rc)
 	if err != nil {
 		if _, ok := err.(storage.ErrNotPossible); ok {
 			r.Header().Add("Content-Type", "text/plain")
