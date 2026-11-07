@@ -457,6 +457,7 @@ func (s *Storage) Read(
 			// There was an error seeking in the file. This is not expected
 			// but we can continue on pretending that the file was not
 			// able to be processed at all.
+			fd.Close()
 			log.LogAttrs(
 				ctx,
 				slog.LevelDebug,
@@ -471,6 +472,7 @@ func (s *Storage) Read(
 			// offset to get the real location that the file pointer landed.
 			// Getting here means that the first seek worked, but the second
 			// didn't which is very odd and shouldn't ever happen.
+			fd.Close()
 			log.LogAttrs(
 				ctx,
 				slog.LevelDebug,
@@ -481,6 +483,7 @@ func (s *Storage) Read(
 		} else if uint64(n) != rc.Start() {
 			// The file was not large enough to get us to "start"
 			// as an offset and thus we need to return an error.
+			fd.Close()
 			log.LogAttrs(
 				ctx,
 				slog.LevelDebug,
@@ -623,6 +626,7 @@ func (s *Storage) Read(
 	} else if goo.ContentLength == nil {
 		// There was no length returned which means we can not be sure
 		// that this is the right data.
+		goo.Body.Close()
 		log.LogAttrs(
 			ctx,
 			slog.LevelWarn,
@@ -630,6 +634,7 @@ func (s *Storage) Read(
 		return nil, fmt.Errorf("Missing content-length")
 	} else if *goo.ContentLength != int64(rc.Length()) {
 		// The wrong length was returned.
+		goo.Body.Close()
 		log.LogAttrs(
 			ctx,
 			slog.LevelWarn,
