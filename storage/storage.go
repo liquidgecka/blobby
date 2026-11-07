@@ -411,33 +411,25 @@ func (s *Storage) Read(
 	// First of all we can check to see if we have a copy of this fid
 	// stored locally. If we do then hurray we can serve this request
 	// directly.
-	fn, ok := func() (string, bool) {
-		fn, ok := func() (string, bool) {
-			s.primariesLock.RLock()
-			defer s.primariesLock.RUnlock()
-			if p, ok := s.primaries[rc.FIDString()]; ok && p.fd != nil {
-				return p.fd.Name(), true
-			} else {
-				return "", false
-			}
-		}()
-		if ok {
-			return fn, ok
+	fidStr := rc.FIDString()
+	var fn string
+	var ok bool
+
+	s.primariesLock.RLock()
+	if p, exists := s.primaries[fidStr]; exists && p.fd != nil {
+		fn = p.fd.Name()
+		ok = true
+	}
+	s.primariesLock.RUnlock()
+
+	if !ok {
+		s.replicasLock.RLock()
+		if r, exists := s.replicas[fidStr]; exists && r.fd != nil {
+			fn = r.fd.Name()
+			ok = true
 		}
-		fn, ok = func() (string, bool) {
-			s.replicasLock.RLock()
-			defer s.replicasLock.RUnlock()
-			if r, ok := s.replicas[rc.FIDString()]; ok && r.fd != nil {
-				return r.fd.Name(), true
-			} else {
-				return "", false
-			}
-		}()
-		if ok {
-			return fn, ok
-		}
-		return "", false
-	}()
+		s.replicasLock.RUnlock()
+	}
 	if ok {
 		// We have a primary with this fid! Try opening the file and seeking
 		// to the starting position of the data we need.
