@@ -13,7 +13,7 @@ var fidID uint32
 // implementation.
 //
 // FID's are currently comprised of two parts (all big endian):
-// 32 bites of a timestamp
+// 32 bit timestamp
 // 16 bit globally auto incrementing number.
 // 32 bit machine id.
 type FID [10]byte
