@@ -284,8 +284,8 @@ func (r *replica) Delete(ctx context.Context) {
 // then this return nil, otherwise this will return an error
 // explaining the problem.
 func (r *replica) HeartBeat(ctx context.Context) error {
-	r.heartBeatLock.Lock()
-	defer r.heartBeatLock.Unlock()
+	r.lock.Lock()
+	defer r.lock.Unlock()
 	r.log.LogAttrs(
 		ctx,
 		slog.LevelDebug,
