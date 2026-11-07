@@ -614,7 +614,7 @@ func (s *Storage) Read(
 				return nil, ErrNotFound(rc.ID())
 			}
 		}
-		log.With(
+		log.LogAttrs(
 			ctx,
 			slog.LevelError,
 			"Error calling the S3 API.",
