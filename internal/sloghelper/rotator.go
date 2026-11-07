@@ -79,6 +79,18 @@ func (r *Rotator) Rotate(ctx context.Context) error {
 	return nil
 }
 
+// Closes the current log file.
+func (r *Rotator) Close() error {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	if r.fd != nil {
+		err := r.fd.Close()
+		r.fd = nil
+		return err
+	}
+	return nil
+}
+
 // Acts like a io.Writter, allowing raw data to be written to the
 // current log buffer. Note that this does not lock as its assumed
 // that this will be called from within something that is locking
@@ -86,5 +98,8 @@ func (r *Rotator) Rotate(ctx context.Context) error {
 func (r *Rotator) Write(data []byte) (int, error) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
+	if r.fd == nil {
+		return 0, os.ErrClosed
+	}
 	return r.fd.Write(data)
 }
