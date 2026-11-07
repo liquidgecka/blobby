@@ -3,7 +3,6 @@ package remotes
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"strconv"
 
@@ -58,7 +57,8 @@ func (r *Remote) Delete(namespace, fn string) error {
 
 	// Ensure that the Body of the request is read so the connection
 	// can get reused.
-	defer ioutil.ReadAll(resp.Body)
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
 
 	// Check the status code.
 	if resp.StatusCode != http.StatusNoContent {
@@ -97,7 +97,8 @@ func (r *Remote) HeartBeat(namespace, fn string) (bool, error) {
 
 	// Ensure that the Body of the request is read so the connection
 	// can get reused.
-	defer ioutil.ReadAll(resp.Body)
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
 
 	// Check the status code.
 	if resp.StatusCode != http.StatusNoContent {
@@ -136,7 +137,8 @@ func (r *Remote) Initialize(namespace, fn string) error {
 
 	// Ensure that the Body of the request is read so the connection
 	// can get reused.
-	defer ioutil.ReadAll(resp.Body)
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
 
 	// Check the status code.
 	if resp.StatusCode != http.StatusNoContent {
@@ -190,11 +192,13 @@ func (r *Remote) Read(rc storage.ReadConfig) (io.ReadCloser, error) {
 	switch resp.StatusCode {
 	case http.StatusOK:
 	case http.StatusNotFound:
-		ioutil.ReadAll(resp.Body)
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
 		return nil, storage.ErrNotFound("")
 	default:
 		// Consume the body so the connection is reusable.
-		ioutil.ReadAll(resp.Body)
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
 		return nil, fmt.Errorf(
 			"Invalid response code: %d",
 			resp.StatusCode)
@@ -247,7 +251,8 @@ func (r *Remote) Replicate(
 	}
 
 	// Ensure that the body of the request is fully read.
-	defer ioutil.ReadAll(resp.Body)
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
 
 	// Check the status code.
 	if resp.StatusCode != http.StatusNoContent {
