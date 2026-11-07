@@ -1,7 +1,6 @@
 package sloghelper
 
 import (
-	"bufio"
 	"context"
 	"log/slog"
 	"os"
@@ -24,10 +23,6 @@ type Rotator struct {
 
 	// The current file descriptor that is being used to write.
 	fd *os.File
-
-	// The output buffered writer that is pointing at the fd
-	// above.
-	buffer *bufio.Writer
 
 	// A lock that protects writes to the file, this will be locked
 	// during write operations to ensure that multiple calls to
@@ -54,23 +49,13 @@ func (r *Rotator) Rotate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	newbuffer := bufio.NewWriter(newfd)
-	oldfd, oldbuffer := func() (*os.File, *bufio.Writer) {
+	oldfd := func() *os.File {
 		r.lock.Lock()
 		defer r.lock.Unlock()
-		oldfd, oldbuffer := r.fd, r.buffer
-		r.fd, r.buffer = newfd, newbuffer
-		return oldfd, oldbuffer
+		oldfd := r.fd
+		r.fd = newfd
+		return oldfd
 	}()
-	if oldbuffer != nil {
-		if err := oldbuffer.Flush(); err != nil {
-			r.log.LogAttrs(
-				ctx,
-				slog.LevelError,
-				"Error flushing logs to disk.",
-				Error("error", err))
-		}
-	}
 	if oldfd != nil {
 		if err := oldfd.Close(); err != nil {
 			r.log.LogAttrs(
@@ -91,5 +76,5 @@ func (r *Rotator) Rotate(ctx context.Context) error {
 func (r *Rotator) Write(data []byte) (int, error) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
-	return r.buffer.Write(data)
+	return r.fd.Write(data)
 }
