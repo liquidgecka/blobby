@@ -13,6 +13,9 @@ func Duration(key string, value time.Duration) slog.Attr {
 }
 
 func Error(key string, value error) slog.Attr {
+	if value == nil {
+		return slog.String(key, "<nil>")
+	}
 	return slog.Attr{
 		Key:   key,
 		Value: slog.StringValue(value.Error()),
