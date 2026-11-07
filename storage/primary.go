@@ -134,6 +134,10 @@ type primary struct {
 	// to true to indicate that it is now unhealthy.
 	unhealthy bool
 
+	// Tracks whether this primary has expired so that it will be shut down
+	// once any active insert completes.
+	expired bool
+
 	// Time stamp of first insert, not file creation. This is used for tracking
 	// the oldest time of data that may exist on disk.
 	firstInsert time.Time
@@ -733,6 +737,7 @@ func (p *primary) deleteRemotes(ctx context.Context) {
 // Called to indicate that the primary has expired. Expiration means that
 // the file is old enough to be force uploaded at this point.
 func (p *primary) expire(ctx context.Context) {
+	p.expired = true
 	// Only expire the file if its in the waiting list otherwise some other
 	// process will be altering the state which will cause consistency
 	// errors if we attempt to change things.
@@ -815,8 +820,9 @@ func (p *primary) resetHeartBeatTimer() {
 // Sets the current state of this primary.
 func (p *primary) setState(ctx context.Context, n int32) {
 	// When changing states we need to check to see if a backend has failed
-	// so that we do not transition into the waiting state again.
-	if n == primaryStateWaiting && p.unhealthy {
+	// or the primary has expired so that we do not transition into the waiting
+	// state again.
+	if n == primaryStateWaiting && (p.unhealthy || p.expired) {
 		p.shutdown(ctx)
 		return
 	}
