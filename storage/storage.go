@@ -416,7 +416,7 @@ func (s *Storage) Read(
 		fn, ok := func() (string, bool) {
 			s.primariesLock.Lock()
 			defer s.primariesLock.Unlock()
-			if p, ok := s.primaries[rc.FIDString()]; ok {
+			if p, ok := s.primaries[rc.FIDString()]; ok && p.fd != nil {
 				return p.fd.Name(), true
 			} else {
 				return "", false
@@ -428,7 +428,7 @@ func (s *Storage) Read(
 		fn, ok = func() (string, bool) {
 			s.replicasLock.Lock()
 			defer s.replicasLock.Unlock()
-			if r, ok := s.replicas[rc.FIDString()]; ok {
+			if r, ok := s.replicas[rc.FIDString()]; ok && r.fd != nil {
 				return r.fd.Name(), true
 			} else {
 				return "", false
