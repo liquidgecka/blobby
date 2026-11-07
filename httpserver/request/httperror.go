@@ -13,10 +13,12 @@ type HTTPError struct {
 }
 
 func (h *HTTPError) Error() string {
-	if h.Err == nil {
+	if h.Err != nil {
 		return h.Err.Error()
+	} else if h.Response != "" {
+		return h.Response
 	} else {
-		return fmt.Sprintf("no error")
+		return fmt.Sprintf("HTTP error: %d", h.Status)
 	}
 }
 
