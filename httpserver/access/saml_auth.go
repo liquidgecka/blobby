@@ -205,8 +205,8 @@ func (s *SAML) Post(ir *request.Request) {
 	ir.WriteHeader(http.StatusFound)
 
 	// Log the quthentication.
-	if ir.Log.Enabled(ir.Context, slog.LevelDebug) {
-		ir.Log.LogAttrs(
+	if ir.Logger().Enabled(ir.Context, slog.LevelDebug) {
+		ir.Logger().LogAttrs(
 			ir.Context,
 			slog.LevelDebug,
 			"User  successfully authenticated.",
@@ -308,24 +308,24 @@ func (s *SAMLAuth) assert(ir *request.Request) {
 func (s *SAMLAuth) check(ir *request.Request) bool {
 	v := samlAuthCookie{}
 	if cook, err := ir.Request.Cookie(s.Source.CookieName); err != nil {
-		if ir.Log.Enabled(ir.Context, slog.LevelDebug) {
-			ir.Log.LogAttrs(
+		if ir.Logger().Enabled(ir.Context, slog.LevelDebug) {
+			ir.Logger().LogAttrs(
 				ir.Context,
 				slog.LevelDebug,
 				"Authentication cookie not set.")
 		}
 		return false
 	} else if err := s.Source.CookieTool.Decode(ir.Context, cook.Value, &v); err != nil {
-		if ir.Log.Enabled(ir.Context, slog.LevelDebug) {
-			ir.Log.LogAttrs(
+		if ir.Logger().Enabled(ir.Context, slog.LevelDebug) {
+			ir.Logger().LogAttrs(
 				ir.Context,
 				slog.LevelDebug,
 				"Authentication cookie is set, but is invalid.")
 		}
 		return false
 	} else if v.Expires.Before(time.Now()) {
-		if ir.Log.Enabled(ir.Context, slog.LevelDebug) {
-			ir.Log.LogAttrs(
+		if ir.Logger().Enabled(ir.Context, slog.LevelDebug) {
+			ir.Logger().LogAttrs(
 				ir.Context,
 				slog.LevelDebug,
 				"Authentication cookie is expired.",
@@ -335,8 +335,8 @@ func (s *SAMLAuth) check(ir *request.Request) bool {
 		}
 		return false
 	} else if len(s.UserTags) == 0 {
-		if ir.Log.Enabled(ir.Context, slog.LevelDebug) {
-			ir.Log.LogAttrs(
+		if ir.Logger().Enabled(ir.Context, slog.LevelDebug) {
+			ir.Logger().LogAttrs(
 				ir.Context,
 				slog.LevelDebug,
 				"User is authenticated and valid. No tags are required.",
@@ -348,7 +348,7 @@ func (s *SAMLAuth) check(ir *request.Request) bool {
 		for _, want := range s.UserTags {
 			for _, have := range v.Tags {
 				if have == want {
-					ir.Log.LogAttrs(
+					ir.Logger().LogAttrs(
 						ir.Context,
 						slog.LevelDebug,
 						"User is authenticated and a tag matches.",
@@ -359,7 +359,7 @@ func (s *SAMLAuth) check(ir *request.Request) bool {
 				}
 			}
 		}
-		ir.Log.LogAttrs(
+		ir.Logger().LogAttrs(
 			ir.Context,
 			slog.LevelDebug,
 			"Authentication cookie is valid, but tags do not match.",

@@ -27,6 +27,7 @@ type Request struct {
 	response    http.ResponseWriter
 	statusCode  int
 	Log         *slog.Logger
+	baseLog     *slog.Logger
 }
 
 func New(
@@ -37,21 +38,39 @@ func New(
 	r Request,
 ) {
 	r.ID = atomic.AddUint64(&nextRequestID, 1)
-	r.Context = context.Background()
+	r.Context = req.Context()
 	r.Request = req
 	r.start = time.Now()
 	r.bodyWrapper.in = req.Body
 	r.response = w
-	r.Log = l.With(sloghelper.Uint64("request-id", r.ID))
-	if r.Log.Enabled(r.Context, slog.LevelDebug) {
+	r.baseLog = l
+	if l != nil && l.Enabled(r.Context, slog.LevelDebug) {
+		r.Log = l.With(sloghelper.Uint64("request-id", r.ID))
+		uri := req.RequestURI
+		if uri == "" && req.URL != nil {
+			uri = req.URL.String()
+		}
 		r.Log.LogAttrs(
 			r.Context,
 			slog.LevelDebug,
 			"Starting request processing.",
-			sloghelper.String("uri", req.URL.String()))
+			sloghelper.String("uri", uri))
 	}
 	req.Body = &r.bodyWrapper
 	return
+}
+
+// Logger returns the logger enriched with the request ID, instantiating
+// it lazily if it has not yet been initialized.
+func (r *Request) Logger() *slog.Logger {
+	if r.Log == nil {
+		if r.baseLog != nil {
+			r.Log = r.baseLog.With(sloghelper.Uint64("request-id", r.ID))
+		} else {
+			r.Log = slog.Default().With(sloghelper.Uint64("request-id", r.ID))
+		}
+	}
+	return r.Log
 }
 
 // Logs the access log for this request to the given logger.
@@ -114,7 +133,7 @@ func (r *Request) PanicHandler(serveError bool) {
 		if he, ok := err.(*HTTPError); ok {
 			he.ServeError(r)
 			if he.Err != nil {
-				r.Log.LogAttrs(
+				r.Logger().LogAttrs(
 					r.Context,
 					slog.LevelError,
 					"Error while processing HTTP request.",
@@ -129,14 +148,14 @@ func (r *Request) PanicHandler(serveError bool) {
 			}
 		} else {
 			if pe, ok := err.(error); ok {
-				r.Log.LogAttrs(
+				r.Logger().LogAttrs(
 					r.Context,
 					slog.LevelError,
 					"Unexpected panic while processing request.",
 					sloghelper.Error("error", pe),
 					sloghelper.String("stack", string(debug.Stack())))
 			} else {
-				r.Log.LogAttrs(
+				r.Logger().LogAttrs(
 					r.Context,
 					slog.LevelError,
 					"Unexpected error while processing request.",
