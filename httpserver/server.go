@@ -640,7 +640,7 @@ func (s *server) httpHeartBeat(r *request.Request) {
 				Status:   http.StatusNotFound,
 				Response: "That replica does not exist.",
 			})
-		} else if _, ok = err.(storage.ErrReplicaNotFound); ok {
+		} else if _, ok = err.(storage.ErrWrongReplicaState); ok {
 			panic(&request.HTTPError{
 				Status:   http.StatusConflict,
 				Response: "The replica is not in a valid state.",
