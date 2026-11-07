@@ -176,35 +176,18 @@ func (d *DelayQueue) findNext() {
 // be run as a goroutine.
 func (d *DelayQueue) process() {
 	for {
-		// The next section needs to be run with a lock so its done in an
-		// embedded function.
-		func() {
-			d.lock.Lock()
-			defer d.lock.Unlock()
-
-			// Make sure there is an item to trigger, if not setup a long
-			// sleep timer so that we will sleep until something major
-			// changes.
-			if d.next == nil {
-				d.longSleepTimer()
-				return
-			}
-
-			// If the next item is not in the past then we need to reset the
-			// timer and then return so that the sleep will wait the right
-			// amount of time.
-			if time.Now().Before(d.next.t) {
-				d.resetTimer()
-				return
-			}
-
+		d.lock.Lock()
+		if d.next == nil {
+			d.longSleepTimer()
+			d.lock.Unlock()
+		} else if time.Now().Before(d.next.t) {
+			d.resetTimer()
+			d.lock.Unlock()
+		} else {
 			// Capture the next item and run the function associated with it.
 			tok := d.next
-			if tok.inLine {
-				tok.f(context.Background()) // FIXME
-			} else {
-				go tok.f(context.Background()) // FIXME
-			}
+			f := tok.f
+			inLine := tok.inLine
 
 			// Remove the next item from the list.
 			if tok.prev == nil {
@@ -224,7 +207,14 @@ func (d *DelayQueue) process() {
 				d.next = nil
 				d.longSleepTimer()
 			}
-		}()
+			d.lock.Unlock()
+
+			if inLine {
+				f(context.Background()) // FIXME
+			} else {
+				go f(context.Background()) // FIXME
+			}
+		}
 
 		// Wait until the timer triggers for the next item to be processed.
 		select {
