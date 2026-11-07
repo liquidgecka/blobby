@@ -187,7 +187,7 @@ func main() {
 		os.Exit(0)
 	}
 	if *Config == "" {
-		fmt.Fprintf(os.Stderr, Version())
+		fmt.Fprint(os.Stderr, Version())
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "-c is a required parameter.\n")
 		os.Exit(1)
