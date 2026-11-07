@@ -42,12 +42,19 @@ func TestCookieTool(t *testing.T) {
 	// Encode the cookie.
 	raw, err := ct.Encode(context.Background(), &want)
 	T.ExpectSuccess(err)
-	// Value computed elsewhere and encoded static here.
-	T.Equal(raw, ""+
-		`FiOo7nkEyy9fj1fSRCn2adBp0pC3TZXzFZ1j2cJTpDs`+
-		`Xbuxx1VggtgOT35wNGefG3JXAeKJAiYmtSKIUkoQghw`)
+
+	// Decode static value computed with earlier Go version to ensure backward compatibility.
+	staticCookie := "" +
+		`FiOo7nkEyy9fj1fSRCn2adBp0pC3TZXzFZ1j2cJTpDs` +
+		`Xbuxx1VggtgOT35wNGefG3JXAeKJAiYmtSKIUkoQghw`
+	T.ExpectSuccess(ct.Decode(context.Background(), staticCookie, &have))
+	T.Equal(have, want)
 
 	// Decode using a single AES key.
+	have = struct {
+		Test1 string `json:"t1"`
+		Test2 string `json:"t2"`
+	}{}
 	T.ExpectSuccess(ct.Decode(context.Background(), raw, &have))
 	T.Equal(have, want)
 
