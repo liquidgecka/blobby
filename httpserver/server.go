@@ -536,12 +536,17 @@ func (s *server) httpGet(r *request.Request, parts []string) {
 
 	// We need to setup the readConfig object that will pass information
 	// into the Read implementation.
-	log := s.settings.Logger.With(
-		sloghelper.String("namespace", parts[1]),
-		sloghelper.String("id", parts[2]),
-		sloghelper.Uint64("start", start),
-		sloghelper.Uint32("length", length),
-	)
+	var log *slog.Logger
+	if s.settings.Logger.Enabled(r.Context, slog.LevelDebug) {
+		log = s.settings.Logger.With(
+			sloghelper.String("namespace", parts[1]),
+			sloghelper.String("id", parts[2]),
+			sloghelper.Uint64("start", start),
+			sloghelper.Uint32("length", length),
+		)
+	} else {
+		log = s.settings.Logger
+	}
 	rc := readConfig{
 		nameSpace: parts[1],
 		id:        parts[2],
