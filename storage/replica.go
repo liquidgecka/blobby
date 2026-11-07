@@ -215,7 +215,7 @@ func (r *replica) Delete(ctx context.Context) {
 				ctx,
 				slog.LevelError,
 				"There was an error removing the temporary compressed file.",
-				sloghelper.String("file", r.fd.Name()),
+				sloghelper.String("file", r.compressFd.Name()),
 				sloghelper.Error("error", err))
 			r.storage.metrics.FilesDeleted.IncFailures()
 			r.setState(ctx, replicaStatePendingDelete)
