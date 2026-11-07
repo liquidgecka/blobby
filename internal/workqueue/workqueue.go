@@ -94,7 +94,9 @@ func (w *WorkQueue) Wait() {
 // in the queue and then it will shut down.
 func (w *WorkQueue) process() {
 	defer func() {
+		w.lock.Lock()
 		w.running -= 1
+		w.lock.Unlock()
 		w.wg.Done()
 	}()
 	for {

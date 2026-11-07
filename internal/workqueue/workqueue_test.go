@@ -94,23 +94,23 @@ func TestWorkQueue_Cycle(t *testing.T) {
 			defer atomic.AddInt32(&running, -1)
 			block.Lock()
 			defer block.Unlock()
-			ran += 1
+			atomic.AddInt32(&ran, 1)
 		})
 	}
 
 	// Since the lock is locked we shouldn't have any more than 1
 	// running function.
-	T.TryUntil(func() bool { return running == int32(parallel) }, time.Second)
-	T.Equal(running, int32(parallel))
+	T.TryUntil(func() bool { return atomic.LoadInt32(&running) == int32(parallel) }, time.Second)
+	T.Equal(atomic.LoadInt32(&running), int32(parallel))
 	T.Equal(w.running, parallel)
 	T.NotEqual(w.next, w.last)
 	T.Equal(tooMany, false, "Too many calls ran in parallel.")
-	T.Equal(ran, int32(0))
+	T.Equal(atomic.LoadInt32(&ran), int32(0))
 
 	// Unlock the lock and let the functions process. Since this happens
 	// in parallel we need to wait until it finishes.
 	block.Unlock()
-	T.TryUntil(func() bool { return ran == tests }, time.Second)
+	T.TryUntil(func() bool { return atomic.LoadInt32(&ran) == tests }, time.Second)
 }
 
 func TestWorkQueue_Parallel(t *testing.T) {
