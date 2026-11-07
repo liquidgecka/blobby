@@ -233,7 +233,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	// Otherwise its an unsupported method.
 	default:
-		ir.Header().Add("Content-Type", "text/plan")
+		ir.Header().Add("Content-Type", "text/plain")
 		ir.WriteHeader(http.StatusMethodNotAllowed)
 		ir.Write([]byte("Unsupported method.\n"))
 	}
