@@ -158,9 +158,11 @@ type server struct {
 	tlsCerts *secretloader.Certificate
 }
 
-func (s *server) initLogging(ctx context.Context) {
+func (s *server) initLogging(ctx context.Context) error {
 	if s.AccessLog != nil {
-		s.AccessLog.initLogging(ctx)
+		if err := s.AccessLog.initLogging(ctx); err != nil {
+			return err
+		}
 	}
 	if s.DebugPathsACL != nil {
 		s.DebugPathsACL.initLogging(ctx)
@@ -184,6 +186,7 @@ func (s *server) initLogging(ctx context.Context) {
 			sloghelper.String("url", *s.AESKeysURL),
 			sloghelper.String("component", "aes-keys-loader"))
 	}
+	return nil
 }
 
 // Returns the WebAuthProvider that should be used for web based

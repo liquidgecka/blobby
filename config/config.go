@@ -93,10 +93,12 @@ func (c *Config) GetRotators(ctx context.Context) []*sloghelper.Rotator {
 		}
 	})
 	r := make([]*sloghelper.Rotator, 0, 2)
-	if c.top.Server.AccessLog != nil {
+	if c.top.Server.AccessLog != nil && c.top.Server.AccessLog.rotator != nil {
 		r = append(r, c.top.Server.AccessLog.rotator)
 	}
-	r = append(r, c.top.Log.rotator)
+	if c.top.Log.rotator != nil {
+		r = append(r, c.top.Log.rotator)
+	}
 	return r
 }
 
@@ -198,7 +200,9 @@ func (c *Config) initializeLogging(ctx context.Context) error {
 	if err := c.top.Log.initLogging(ctx); err != nil {
 		return err
 	}
-	c.top.Server.initLogging(ctx)
+	if err := c.top.Server.initLogging(ctx); err != nil {
+		return err
+	}
 	for _, saml := range c.top.SAML {
 		saml.initLogging()
 	}
