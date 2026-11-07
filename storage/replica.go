@@ -9,11 +9,11 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/liquidgecka/blobby/internal/compat"
 	"github.com/liquidgecka/blobby/internal/delayqueue"
 	"github.com/liquidgecka/blobby/internal/human"
 	"github.com/liquidgecka/blobby/internal/sloghelper"
@@ -476,7 +476,7 @@ func (r *replica) Replicate(
 
 // Called to get the current status of this replica.
 func (r *replica) Status() string {
-	b := compat.Builder{}
+	b := strings.Builder{}
 	state := atomic.LoadInt32(&r.state)
 	b.WriteString(r.fidStr)
 	b.WriteString(" state=")

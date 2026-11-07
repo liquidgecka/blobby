@@ -1,10 +1,9 @@
 package tracing
 
 import (
+	"strings"
 	"sync"
 	"time"
-
-	"github.com/liquidgecka/blobby/internal/compat"
 )
 
 var (
@@ -83,7 +82,7 @@ func (t *Trace) NewChild(name string) *Trace {
 }
 
 func (t *Trace) String() string {
-	s := compat.Builder{}
+	s := strings.Builder{}
 	s.WriteString(t.name)
 	s.WriteByte(' ')
 	s.WriteString(t.end.Sub(t.start).String())

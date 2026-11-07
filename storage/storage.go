@@ -21,7 +21,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 
 	"github.com/liquidgecka/blobby/internal/backoff"
-	"github.com/liquidgecka/blobby/internal/compat"
 	"github.com/liquidgecka/blobby/internal/sloghelper"
 	"github.com/liquidgecka/blobby/storage/blastpath"
 	"github.com/liquidgecka/blobby/storage/fid"
@@ -320,7 +319,7 @@ func (s *Storage) GetMetrics() (m metrics.Metrics) {
 // reason why this Storage implementation is healthy.
 func (s *Storage) Health() (bool, string) {
 	healthy := true
-	output := compat.Builder{}
+	output := strings.Builder{}
 	output.Grow(4096)
 
 	// Check that new file creation is successful.

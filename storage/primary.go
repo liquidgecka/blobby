@@ -10,11 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/liquidgecka/blobby/internal/compat"
 	"github.com/liquidgecka/blobby/internal/delayqueue"
 	"github.com/liquidgecka/blobby/internal/human"
 	"github.com/liquidgecka/blobby/internal/sloghelper"
@@ -493,7 +493,7 @@ func (p *primary) Open(ctx context.Context) bool {
 // Storage.Status call.
 func (p *primary) Status() string {
 	state := atomic.LoadInt32(&p.state)
-	b := compat.Builder{}
+	b := strings.Builder{}
 	b.WriteString(p.fidStr)
 	b.WriteString(" state=")
 	b.WriteString(primaryStateStrings[state])

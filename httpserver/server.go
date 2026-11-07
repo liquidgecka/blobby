@@ -20,7 +20,6 @@ import (
 	"sync/atomic"
 
 	"github.com/liquidgecka/blobby/httpserver/request"
-	"github.com/liquidgecka/blobby/internal/compat"
 	"github.com/liquidgecka/blobby/internal/sloghelper"
 	"github.com/liquidgecka/blobby/storage"
 	"github.com/liquidgecka/blobby/storage/fid"
@@ -88,15 +87,13 @@ func New(settings *Settings) Server {
 	s := &server{
 		context:  context.Background(), // FIXME
 		settings: *settings,
-		httpServer: compat.SetIdleTimeout(
-			&http.Server{
-				WriteTimeout:   settings.WriteTimeout,
-				ReadTimeout:    settings.ReadTimeout,
-				MaxHeaderBytes: settings.MaxHeaderBytes,
-				ErrorLog:       log.New(ioutil.Discard, "", 0),
-			},
-			settings.IdleTimeout,
-		),
+		httpServer: &http.Server{
+			IdleTimeout:    settings.IdleTimeout,
+			WriteTimeout:   settings.WriteTimeout,
+			ReadTimeout:    settings.ReadTimeout,
+			MaxHeaderBytes: settings.MaxHeaderBytes,
+			ErrorLog:       log.New(ioutil.Discard, "", 0),
+		},
 		log: settings.Logger,
 	}
 	s.httpServer.Handler = s
