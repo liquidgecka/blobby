@@ -3,6 +3,7 @@ package storage
 import (
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,7 +16,6 @@ import (
 
 	"github.com/liquidgecka/blobby/internal/compat"
 	"github.com/liquidgecka/blobby/internal/delayqueue"
-	"github.com/liquidgecka/blobby/internal/errors"
 	"github.com/liquidgecka/blobby/internal/human"
 	"github.com/liquidgecka/blobby/internal/sloghelper"
 	"github.com/liquidgecka/blobby/internal/tracing"
@@ -349,9 +349,9 @@ func (p *primary) Insert(ctx context.Context, data *InsertData) (string, error) 
 			"Replication failed.",
 			attrs[0:errCount]...)
 		truncate(false)
-		return "", errors.NewMultipleError(
-			"Replication failed",
-			errs[0:errCount])
+		return "", fmt.Errorf(
+			"Replication failed: %w",
+			errors.Join(errs[0:errCount]...))
 	} else {
 		p.log.Debug("Replicas accepted the update.")
 	}
