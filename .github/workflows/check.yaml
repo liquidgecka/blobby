@@ -6,16 +6,16 @@ jobs:
     strategy:
       matrix:
         os:
-          - "ubuntu-20.04"
           - "ubuntu-22.04"
+          - "ubuntu-24.04"
+          - "ubuntu-26.04"
     runs-on: ${{ matrix.os }}
     steps:
       - name: checkout
         uses: actions/checkout@v4
-      - run: sudo add-apt-repository ppa:longsleep/golang-backports
-      - run: sudo apt update
-      - run: sudo apt install golang-go
-      - run: go mod download
-      - run: go mod vendor
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
       - run: ./scripts/check
       - run: ./scripts/build
